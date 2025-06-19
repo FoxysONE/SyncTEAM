@@ -1,11 +1,11 @@
 {
-  "name": "codesync-relay",
+  "name": "syncteam-relay",
   "version": "1.0.0",
-  "description": "Serveur de relais pour CodeSync",
-  "main": "src/relay-server.js",
+  "description": "Serveur de relais pour SyncTEAM",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/relay-server.js",
-    "dev": "node src/relay-server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "ws": "^8.13.0"
