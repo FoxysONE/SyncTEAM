@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CodeSync - Synchronisation en Temps Réel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <h1><span class="icon">🔄</span> CodeSync</h1>
+            <div id="status">Déconnecté</div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Welcome Section -->
+            <div class="welcome" id="welcome">
+                <h2>🚀 Synchronisation de Code en Temps Réel</h2>
+                <p>Collaborez avec votre équipe - Le serveur a priorité absolue</p>
+                
+                <div class="cards">
+                    <div class="card" onclick="selectProject()">
+                        <div class="card-icon">📁</div>
+                        <h3>Sélectionner Projet</h3>
+                        <p>Choisir le dossier à synchroniser</p>
+                    </div>
+                    
+                    <div class="card" onclick="startHost()">
+                        <div class="card-icon">🖥️</div>
+                        <h3>Démarrer Serveur</h3>
+                        <p>Partager votre projet en tant qu'hôte</p>
+                    </div>
+                    
+                    <div class="card" onclick="showConnect()">
+                        <div class="card-icon">🔗</div>
+                        <h3>Se Connecter</h3>
+                        <p>Rejoindre un projet existant</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Section -->
+            <div class="dashboard" id="dashboard" style="display: none;">
+                <!-- Left Panel - File Explorer -->
+                <div class="dashboard-left">
+                    <div class="file-explorer">
+                        <div class="file-explorer-header">
+                            <h3>📂 Fichiers du Projet</h3>
+                            <div class="file-count" id="fileCount">0 fichiers</div>
+                        </div>
+                        <div class="file-list" id="fileList">
+                            <div style="padding: 2rem; text-align: center; color: var(--text-secondary);">
+                                Aucun projet sélectionné
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panel - Controls & Activity -->
+                <div class="dashboard-right">
+                    <!-- Project Info -->
+                    <div class="info-card">
+                        <h3>📂 Projet Actuel</h3>
+                        <div class="content">
+                            <div id="projectInfo">Aucun projet sélectionné</div>
+                            <button onclick="openProject()" id="openBtn" disabled style="margin-top: 1rem;">
+                                📁 Ouvrir Dossier
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Connection Status -->
+                    <div class="info-card">
+                        <h3>🌐 État de la Connexion</h3>
+                        <div class="content">
+                            <div id="connectionInfo">Déconnecté</div>
+                            <div id="clientsInfo" style="margin-top: 0.5rem;">0 clients connectés</div>
+                            <div id="serverInfo" style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);"></div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="info-card">
+                        <h3>⚡ Actions</h3>
+                        <div class="actions">
+                            <button onclick="showConnect()" class="primary" id="connectBtn">
+                                🔗 Se Connecter
+                            </button>
+                            <button onclick="startHost()" class="primary" id="hostBtn">
+                                🖥️ Démarrer Serveur
+                            </button>
+                            <button onclick="disconnect()" class="danger" id="disconnectBtn" disabled>
+                                ❌ Déconnecter
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Mise à jour -->
+                    <div class="info-card">
+                        <h3>🔄 Mise à Jour</h3>
+                        <div class="content">
+                            <div id="updateInfo">Vérification...</div>
+                            <div class="actions" style="margin-top: 1rem;">
+                                <button onclick="checkForUpdates()" class="primary" id="checkUpdateBtn">
+                                    🔍 Vérifier
+                                </button>
+                                <button onclick="downloadUpdate()" class="success" id="downloadBtn" style="display: none;">
+                                    📥 Télécharger
+                                </button>
+                                <button onclick="installUpdate()" class="warning" id="installBtn" style="display: none;">
+                                    🚀 Installer
+                                </button>
+                            </div>
+                            <div id="updateProgress" style="display: none; margin-top: 1rem;">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="progressFill"></div>
+                                </div>
+                                <div id="progressText" style="text-align: center; margin-top: 0.5rem; font-size: 0.8rem;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Activity Log -->
+                    <div class="info-card" style="flex: 1;">
+                        <h3>📝 Activité en Temps Réel</h3>
+                        <div class="activity-log" id="activityLog">
+                            <div style="color: var(--text-muted); text-align: center; padding: 1rem;">
+                                Aucune activité récente
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Connect Modal -->
+    <div class="modal" id="connectModal" style="display: none;" onclick="hideConnect()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h3>🔗 Se Connecter à une Session</h3>
+            <form onsubmit="connectToHost(event)">
+                <div class="form-group">
+                    <label for="sessionId">ID de Session:</label>
+                    <input type="text" id="sessionId" placeholder="Entrez l'ID de session partagé" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="hideConnect()">Annuler</button>
+                    <button type="submit" class="primary">🔗 Se Connecter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html> 

@@ -1,0 +1,16 @@
+{
+  "name": "codesync-relay",
+  "version": "1.0.0",
+  "description": "Serveur de relais pour CodeSync",
+  "main": "src/relay-server.js",
+  "scripts": {
+    "start": "node src/relay-server.js",
+    "dev": "node src/relay-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.13.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

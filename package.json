@@ -1,0 +1,89 @@
+{
+  "name": "code-sync-app",
+  "version": "1.0.0",
+  "description": "Application de synchronisation de code en temps réel",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win --x64",
+    "build-simple": "electron-builder --dir",
+    "build-portable": "electron-builder --win portable --x64",
+    "build-working": "npx electron-packager . CodeSync --platform=win32 --arch=x64 --out=dist --overwrite",
+    "build-installer": "electron-builder --win nsis --x64",
+    "pack": "electron-builder --dir",
+    "install-deps": "npm install",
+    "publish-update": "electron-builder --win --publish=always"
+  },
+  "keywords": [
+    "sync",
+    "code",
+    "collaboration",
+    "real-time"
+  ],
+  "author": "CodeSync Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^25.0.0",
+    "electron-builder": "^24.0.0",
+    "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "electron-log": "^5.4.1",
+    "electron-updater": "^6.6.2",
+    "node-fetch": "^3.3.0",
+    "ws": "^8.13.0"
+  },
+  "build": {
+    "appId": "com.codesync.app",
+    "productName": "CodeSync",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "sign": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "votre-nom-utilisateur",
+      "repo": "sync-extension",
+      "releaseType": "release"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CodeSync",
+      "uninstallDisplayName": "CodeSync - Synchronisation Temps Réel",
+      "license": "LICENSE.txt",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "menuCategory": "Développement",
+      "displayLanguageSelector": false,
+      "language": "1036"
+    },
+    "mac": false,
+    "linux": false,
+    "compression": "maximum",
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "forceCodeSigning": false
+  }
+}
