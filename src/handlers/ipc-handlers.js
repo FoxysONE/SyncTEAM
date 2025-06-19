@@ -63,8 +63,6 @@ class IPCHandlers {
           error: error.message 
         };
       }
-    }, {
-      validate: ipcManager.validateHandlerConfig('select-project-folder', [])
     });
     
     // Ouvrir le dossier du projet
@@ -224,8 +222,6 @@ class IPCHandlers {
         this.app.stats.recordError();
         return { success: false, error: error.message };
       }
-    }, {
-      validate: ipcManager.validateHandlerConfig('start-live-session', [])
     });
     
     // Rejoindre une session live coding
@@ -254,10 +250,6 @@ class IPCHandlers {
         errorHandler.handleError('JoinSession', error);
         return { success: false, error: error.message };
       }
-    }, {
-      validate: ipcManager.validateHandlerConfig('join-live-session', [
-        { name: 'sessionInfo', type: 'object', required: true }
-      ])
     });
     
     // Connecter à un hôte
@@ -291,10 +283,6 @@ class IPCHandlers {
         errorHandler.handleError('HostConnection', error);
         return { success: false, error: error.message };
       }
-    }, {
-      validate: ipcManager.validateHandlerConfig('connect-to-host', [
-        { name: 'ip', type: 'string', required: true }
-      ])
     });
     
     // Déconnecter
@@ -353,10 +341,6 @@ class IPCHandlers {
         errorHandler.handleError('ConfigUpdater', error);
         return { success: false, error: error.message };
       }
-    }, {
-      validate: ipcManager.validateHandlerConfig('update-config', [
-        { name: 'configUpdate', type: 'object', required: true }
-      ])
     });
   }
   
@@ -370,6 +354,13 @@ class IPCHandlers {
         const result = await this.app.networkManager.switchMode(newMode);
         
         console.log(`🔄 Mode réseau changé: ${currentMode} → ${newMode}`);
+        
+        // Notifier l'interface du changement
+        this.app.sendToRenderer('network-mode-changed', {
+          mode: newMode,
+          config: result.config,
+          interfaces: result.config.interfaces
+        });
         
         return {
           success: true,

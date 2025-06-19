@@ -271,8 +271,12 @@ class NetworkManager {
   
   // Obtenir les statistiques réseau
   getNetworkStats() {
+    const config = this.getServerConfig();
+    
     return {
+      mode: this.currentMode,
       currentMode: this.currentMode,
+      config: config,
       interfacesCount: this.networkInterfaces.size,
       interfaces: Array.from(this.networkInterfaces.entries()).map(([name, info]) => ({
         name,

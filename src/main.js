@@ -134,6 +134,14 @@ class SyncTeamApp {
         userName: this.userName,
         color: this.userColor
       });
+      
+      // Envoyer le mode réseau initial
+      const networkConfig = this.networkManager.getServerConfig();
+      this.sendToRenderer('network-mode-changed', {
+        mode: networkConfig.mode,
+        config: networkConfig,
+        interfaces: networkConfig.interfaces
+      });
     });
 
     // Configuration des handlers IPC
@@ -194,6 +202,15 @@ class SyncTeamApp {
   // 🚀 SERVEUR LIVE CODING OPTIMISÉ
   async startOptimizedServer(serverConfig = null) {
     try {
+      // Fermer le serveur existant s'il y en a un
+      if (this.syncServer) {
+        console.log('🔄 Fermeture du serveur existant...');
+        this.syncServer.close();
+        this.syncServer = null;
+        // Attendre un peu pour que le port se libère
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
       const config = serverConfig || this.networkManager.getServerConfig();
       
       console.log(`🚀 Démarrage serveur [${config.mode}]: ${config.host}:${config.port}`);
@@ -442,10 +459,125 @@ class SyncTeamApp {
     }
   }
   
+  // Initialiser les documents du projet pour le live sync
+  initializeProjectDocuments() {
+    if (!this.projectPath) {
+      console.warn('⚠️ Aucun projet sélectionné pour initialiser les documents');
+      return;
+    }
+    
+    console.log('🔧 Initialisation des documents du projet...');
+    
+    if (!this.projectFiles || this.projectFiles.size === 0) {
+      console.warn('⚠️ Aucun fichier de projet à initialiser');
+      return;
+    }
+    
+    this.projectFiles.forEach((fileInfo, fileName) => {
+      try {
+        if (fs.existsSync(fileInfo.fullPath)) {
+          const content = fs.readFileSync(fileInfo.fullPath, 'utf8');
+          
+          // Initialiser le document dans le moteur de live sync
+          if (this.liveSyncEngine && this.liveSyncEngine.initializeDocument) {
+            this.liveSyncEngine.initializeDocument(fileName, content);
+          }
+          
+          console.log(`📄 Document initialisé: ${fileName}`);
+        } else {
+          console.warn(`⚠️ Fichier non trouvé: ${fileInfo.fullPath}`);
+        }
+      } catch (error) {
+        console.error(`❌ Erreur initialisation document ${fileName}:`, error.message);
+      }
+    });
+    
+    console.log(`✅ ${this.projectFiles.size} documents initialisés`);
+  }
+  
+  // Configuration du watcher de fichiers
+  setupFileWatcher() {
+    if (!this.projectPath) {
+      console.warn('⚠️ Aucun projet sélectionné pour le file watcher');
+      return;
+    }
+    
+    console.log('👀 Configuration du watcher de fichiers...');
+    
+    // Fermer le watcher existant s'il y en a un
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+      this.fileWatcher = null;
+    }
+    
+    try {
+      // Watcher simple avec fs.watch
+      this.fileWatcher = fs.watch(this.projectPath, { recursive: true }, (eventType, filename) => {
+        if (filename && !this.shouldIgnoreFile(filename)) {
+          console.log(`📝 Fichier modifié: ${filename} (${eventType})`);
+          this.handleFileChange(filename, eventType);
+        }
+      });
+      
+      console.log('✅ File watcher configuré');
+    } catch (error) {
+      console.error('❌ Erreur configuration file watcher:', error.message);
+    }
+  }
+  
+  // Gérer les changements de fichiers
+  handleFileChange(filename, eventType) {
+    const fullPath = path.join(this.projectPath, filename);
+    
+    try {
+      if (eventType === 'change' && fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const stat = fs.statSync(fullPath);
+        
+        // Mettre à jour les infos du fichier
+        this.projectFiles.set(filename, {
+          fullPath: fullPath,
+          size: stat.size,
+          modified: stat.mtime.getTime(),
+          status: 'modified'
+        });
+        
+        // Notifier le renderer
+        this.sendToRenderer('file_changed', {
+          fileName: filename,
+          content: content,
+          timestamp: Date.now(),
+          action: eventType
+        });
+        
+        // Broadcaster aux clients connectés si on est host
+        if (this.isHost && this.syncServer) {
+          this.broadcastToOthers(null, {
+            type: 'file_change',
+            data: {
+              fileName: filename,
+              content: content,
+              timestamp: Date.now(),
+              action: eventType
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erreur traitement changement fichier ${filename}:`, error.message);
+    }
+  }
+  
   // Déconnexion
   async disconnect() {
     try {
       console.log('🔌 Déconnexion...');
+      
+      // Fermer le file watcher
+      if (this.fileWatcher) {
+        this.fileWatcher.close();
+        this.fileWatcher = null;
+      }
       
       if (this.syncServer) {
         this.syncServer.close();
@@ -454,6 +586,10 @@ class SyncTeamApp {
       
       if (this.backup) {
         this.backup.stop();
+      }
+      
+      if (this.liveSyncEngine && this.liveSyncEngine.cleanup) {
+        this.liveSyncEngine.cleanup();
       }
       
       this.isHost = false;

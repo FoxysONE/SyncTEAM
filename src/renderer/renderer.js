@@ -40,6 +40,8 @@ function addEventListeners(event, handler) {
 
 function initializeApp() {
     console.log('🚀 CodeSync initialisé');
+    // Initialiser le bouton de mode réseau
+    addNetworkModeButton();
     // Afficher l'écran d'accueil par défaut
     showWelcomeScreen();
 }
@@ -104,6 +106,12 @@ function setupEventListeners() {
     
     // Configurer les événements de mise à jour
     setupUpdateEventListeners();
+    
+    // Écouter les changements de mode réseau
+    addEventListeners('network-mode-changed', (event, data) => {
+        console.log('🔄 Mode réseau changé:', data);
+        updateNetworkModeDisplay(data.mode, data.config);
+    });
 }
 
 // Gestion des fichiers
@@ -864,32 +872,16 @@ function requestProjectFiles() {
     ipcRenderer.send('request-project-files');
 }
 
-// Ajouter le bouton de mode réseau
+// Initialiser le bouton de mode réseau (maintenant dans le HTML)
 function addNetworkModeButton() {
-    // Vérifier si le bouton existe déjà
-    if (document.querySelector('.network-mode-btn')) return;
-    
-    // Trouver la section Actions
-    const actionsContainer = document.querySelector('.actions');
-    if (!actionsContainer) {
-        console.warn('❌ Container .actions non trouvé pour le bouton réseau');
-        return;
+    const btn = document.getElementById('networkModeBtn');
+    if (btn) {
+        console.log('✅ Bouton mode réseau trouvé dans le HTML');
+        // Mettre à jour l'état du bouton
+        updateNetworkModeButton();
+    } else {
+        console.warn('❌ Bouton mode réseau non trouvé dans le HTML');
     }
-    
-    // Créer le bouton
-    const networkModeBtn = document.createElement('button');
-    networkModeBtn.innerHTML = '🔒 Mode Local';
-    networkModeBtn.className = 'network-mode-btn local-active';
-    networkModeBtn.title = 'Cliquez pour basculer entre mode local et réseau';
-    networkModeBtn.onclick = () => toggleNetworkMode();
-    
-    // Ajouter le bouton en première position
-    actionsContainer.insertBefore(networkModeBtn, actionsContainer.firstChild);
-    
-    console.log('✅ Bouton mode réseau ajouté');
-    
-    // Mettre à jour l'état du bouton
-    updateNetworkModeButton();
 }
 
 // Basculer le mode réseau
@@ -911,22 +903,47 @@ async function toggleNetworkMode() {
     }
 }
 
-// Mettre à jour le bouton de mode réseau
+// Mettre à jour l'affichage du mode réseau en temps réel
+function updateNetworkModeDisplay(mode, config) {
+    const btn = document.getElementById('networkModeBtn');
+    if (!btn) return;
+    
+    if (mode === 'network') {
+        btn.innerHTML = '🌐 Mode network activé';
+        btn.className = 'network-mode-btn active';
+        
+        // Afficher les interfaces disponibles
+        if (config && config.interfaces) {
+            const addresses = config.interfaces
+                .filter(iface => iface.type === 'network')
+                .map(iface => iface.address)
+                .join(', ');
+                
+            if (addresses) {
+                btn.title = `Mode réseau actif - Accessible via: ${addresses}. Cliquez pour passer en mode local.`;
+            } else {
+                btn.title = 'Mode réseau actif - Port 8080 ouvert. Cliquez pour passer en mode local.';
+            }
+        }
+    } else {
+        btn.innerHTML = '🔒 Mode local activé';
+        btn.className = 'network-mode-btn';
+        btn.title = 'Mode local actif - Aucun port requis. Cliquez pour passer en mode réseau.';
+    }
+    
+    console.log(`🔄 Interface mise à jour: mode ${mode}`);
+}
+
+// Mettre à jour le bouton de mode réseau (version async pour compatibilité)
 async function updateNetworkModeButton() {
     try {
-        const config = await ipcRenderer.invoke('get-config');
-        const btn = document.querySelector('.network-mode-btn');
-        
-        if (!btn) return;
-        
-        if (config.networkMode === 'network') {
-            btn.innerHTML = '🌐 Mode Réseau';
-            btn.className = 'network-mode-btn network-active';
-            btn.title = 'Mode réseau actif - Port 8080 ouvert. Cliquez pour passer en mode local.';
+        const result = await ipcRenderer.invoke('get-stats');
+        if (result.success && result.stats) {
+            const mode = result.stats.network?.mode || 'local';
+            const config = result.stats.network?.config || { interfaces: [] };
+            updateNetworkModeDisplay(mode, config);
         } else {
-            btn.innerHTML = '🔒 Mode Local';
-            btn.className = 'network-mode-btn local-active';
-            btn.title = 'Mode local actif - Aucun port requis. Cliquez pour passer en mode réseau.';
+            console.warn('❌ Pas de stats réseau disponibles');
         }
     } catch (error) {
         console.error('❌ Erreur mise à jour bouton:', error);

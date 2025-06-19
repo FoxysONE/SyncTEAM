@@ -10,7 +10,12 @@
         <!-- Header -->
         <header class="header">
             <h1><span class="icon">🔄</span> CodeSync</h1>
-            <div id="status">Déconnecté</div>
+            <div class="header-controls">
+                <button id="networkModeBtn" class="network-mode-btn" onclick="toggleNetworkMode()" title="Mode réseau">
+                    🔒 Mode local activé
+                </button>
+                <div id="status">Déconnecté</div>
+            </div>
         </header>
 
         <!-- Main Content -->
