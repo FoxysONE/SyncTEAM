@@ -5,6 +5,16 @@ const fs = require('fs');
 const chokidar = require('chokidar');
 const WebSocket = require('ws');
 
+// 🚀 MODULES LIVE CODING AVANCÉS
+const LiveSyncEngine = require('./live-sync');
+const ConflictResolver = require('./conflict-resolver');
+const OptimizedWebSocket = require('./ws-optimized');
+const AICodeAssistant = require('./ai-assistant');
+const AuthManager = require('./auth');
+const StatsManager = require('./stats');
+const ConfigManager = require('./config');
+const BackupManager = require('./backup');
+
 class CodeSyncApp {
   constructor() {
     this.mainWindow = null;
@@ -14,34 +24,94 @@ class CodeSyncApp {
     this.isHost = false;
     this.isConnected = false;
     this.watchers = [];
-    // MODE LOCAL DIRECT - PAS DE SERVEUR EXTERNE REQUIS
-    this.useLocalMode = true; // Nouvelle option
-    this.serverPort = 8080;
-    this.sessionId = null;
-    this.projectFiles = new Map();
-    this.watcherEnabled = true;
     
-    // **NOUVEAU : Debouncing pour éviter les événements en rafale**
-    this.fileChangeQueue = new Map();
-    this.debounceTimeout = null;
+    // 🔥 MODULES LIVE CODING
+    this.liveSyncEngine = new LiveSyncEngine();
+    this.conflictResolver = new ConflictResolver();
+    this.aiAssistant = new AICodeAssistant();
+    this.auth = new AuthManager();
+    this.stats = new StatsManager();
+    this.config = new ConfigManager();
+    this.backup = null; // Initialisé quand un projet est sélectionné
     
-    // **SYSTÈME DE MISE À JOUR**
+    // Connexion WebSocket optimisée
+    this.wsOptimized = null;
+    
+    // État du client
+    this.clientId = `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.userName = 'Utilisateur';
+    this.userColor = this.generateUserColor();
+    
+    // Configuration live coding
+    this.liveMode = {
+      enabled: true,
+      realtimeSync: true,
+      conflictResolution: 'auto',
+      aiAssistance: true,
+      cursorSharing: true,
+      presenceIndicators: true
+    };
+    
+    // Session de live coding
+    this.sessionPassword = null;
+    this.collaborators = new Map();
+    
     this.setupAutoUpdater();
+    this.setupLiveSyncEvents();
+  }
+
+  setupAutoUpdater() {
+    // Configuration de l'auto-updater (optionnel)
+    // En production, vous pourriez utiliser electron-updater
+    console.log('🔄 Auto-updater configuré (mode développement)');
+    
+    // Vérification de mise à jour simulée
+    if (process.env.NODE_ENV === 'production') {
+      // Ici vous pourriez intégrer electron-updater
+      // autoUpdater.checkForUpdatesAndNotify();
+    }
+  }
+
+  setupLiveSyncEvents() {
+    // Événements du moteur de synchronisation
+    this.liveSyncEngine.on('operations_batch', (batch) => {
+      this.broadcastLiveBatch(batch);
+    });
+    
+    this.liveSyncEngine.on('presence_update', (presenceList) => {
+      this.sendToRenderer('presence_update', presenceList);
+    });
+    
+    this.liveSyncEngine.on('lock_update', (lockUpdate) => {
+      this.sendToRenderer('lock_update', lockUpdate);
+    });
+    
+    // Événements de l'assistant IA
+    this.aiAssistant.on('suggestion', (suggestion) => {
+      this.sendToRenderer('ai_suggestion', suggestion);
+    });
+    
+    // Nettoyage périodique
+    setInterval(() => {
+      this.liveSyncEngine.cleanupInactiveClients();
+      this.conflictResolver.cleanupHistory();
+    }, 300000); // 5 minutes
   }
 
   createWindow() {
     this.mainWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      minWidth: 1000,
-      minHeight: 700,
+      width: 1600,
+      height: 1000,
+      minWidth: 1200,
+      minHeight: 800,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false
       },
       titleBarStyle: 'default',
       show: false,
-      backgroundColor: '#0d1117'
+      backgroundColor: '#0d1117',
+      title: 'syncTEAM - Live Coding Platform'
     });
 
     this.mainWindow.loadFile('src/renderer/index.html');
@@ -49,6 +119,14 @@ class CodeSyncApp {
     // Afficher la fenêtre quand elle est prête
     this.mainWindow.once('ready-to-show', () => {
       this.mainWindow.show();
+      
+      // Envoyer la configuration initiale
+      this.sendToRenderer('config_loaded', this.config.export());
+      this.sendToRenderer('client_info', {
+        clientId: this.clientId,
+        userName: this.userName,
+        color: this.userColor
+      });
     });
 
     // Dev tools en mode développement
@@ -70,980 +148,661 @@ class CodeSyncApp {
       if (!result.canceled && result.filePaths.length > 0) {
         this.projectPath = result.filePaths[0];
         this.scanProjectFiles();
+        
+        // Initialiser le backup pour ce projet
+        this.backup = new BackupManager(this.projectPath);
+        
+        // Analyser le code avec l'IA
+        this.analyzeProjectWithAI();
+        
         return { success: true, path: this.projectPath };
       }
       return { success: false };
     });
 
-    // Démarrer en tant qu'hôte
-    ipcMain.handle('start-host', async () => {
+    // 🚀 DÉMARRER SESSION LIVE CODING
+    ipcMain.handle('start-live-session', async (event, options = {}) => {
       try {
         if (!this.projectPath) {
           return { success: false, error: 'Aucun projet sélectionné' };
         }
 
-        // Générer un ID de session unique
-        this.sessionId = `session_${Date.now()}`;
+        // Générer un ID de session et mot de passe
+        this.sessionId = `live_${Date.now()}`;
+        this.sessionPassword = this.auth.createSecureSession(this.sessionId);
         
-        await this.startServer();
+        // Configuration du serveur optimisé
+        await this.startOptimizedServer();
+        
+        // Initialiser le moteur de live sync
+        this.liveSyncEngine.addClient(this.clientId, this.userName);
+        
+        // Initialiser les documents du projet
+        this.initializeProjectDocuments();
+        
         this.isHost = true;
         this.isConnected = true;
         this.setupFileWatcher();
         
-        console.log(`🖥️ Serveur démarré - Session: ${this.sessionId}`);
+        // Démarrer le backup automatique
+        if (this.backup) {
+          this.backup.start();
+        }
+        
+        console.log(`🔥 Session live coding démarrée: ${this.sessionId}`);
+        console.log(`🔑 Mot de passe: ${this.sessionPassword}`);
         
         return { 
           success: true, 
-          port: this.serverPort,
           sessionId: this.sessionId,
-          message: `Serveur démarré sur le port ${this.serverPort}` 
+          password: this.sessionPassword,
+          port: this.config.get('server.port'),
+          message: `Session live démarrée - ID: ${this.sessionId}` 
         };
+        
       } catch (error) {
-        console.error('Erreur démarrage serveur:', error);
+        console.error('Erreur démarrage live session:', error);
+        this.stats.recordError();
         return { success: false, error: error.message };
       }
     });
 
-    // Se connecter à un hôte
-    ipcMain.handle('connect-to-host', async (event, hostInfo) => {
+    // 🔗 REJOINDRE SESSION LIVE CODING
+    ipcMain.handle('join-live-session', async (event, sessionInfo) => {
       try {
-        const { ip } = hostInfo;
-        await this.connectToSession(ip);
+        const { sessionId, password, hostIP } = sessionInfo;
+        
+        // Valider les informations de session
+        if (!sessionId || !password) {
+          return { success: false, error: 'ID de session ou mot de passe manquant' };
+        }
+        
+        // Connexion WebSocket optimisée
+        await this.connectToLiveSession(hostIP, sessionId, password);
+        
         this.isConnected = true;
         
-        // Demander la synchronisation initiale
-        this.requestInitialSync();
+        console.log(`🔗 Rejoint la session live: ${sessionId}`);
         
-        return { success: true, message: `Connecté à ${ip}:${this.serverPort}` };
+        return { success: true, message: `Connecté à la session ${sessionId}` };
+        
       } catch (error) {
-        console.error('Erreur connexion:', error);
+        console.error('Erreur connexion live session:', error);
+        this.stats.recordError();
         return { success: false, error: error.message };
       }
     });
 
-    // Déconnecter
-    ipcMain.handle('disconnect', async () => {
-      this.disconnect();
-      return { success: true };
+    // 📝 ENVOI D'OPÉRATION LIVE
+    ipcMain.handle('send-live-operation', async (event, operation) => {
+      try {
+        const success = this.liveSyncEngine.applyTextOperation(
+          this.clientId, 
+          operation.fileName, 
+          operation
+        );
+        
+        if (success) {
+          this.stats.recordSync(operation.fileName, operation.text?.length || 0, Date.now());
+        }
+        
+        return { success };
+        
+      } catch (error) {
+        console.error('Erreur envoi opération:', error);
+        this.stats.recordError();
+        return { success: false, error: error.message };
+      }
     });
 
-    // Obtenir les statistiques
+    // 🎯 MISE À JOUR CURSEUR
+    ipcMain.handle('update-cursor', async (event, cursorData) => {
+      try {
+        this.liveSyncEngine.updateCursor(
+          this.clientId,
+          cursorData.fileName,
+          cursorData.position,
+          cursorData.selection
+        );
+        
+        return { success: true };
+        
+      } catch (error) {
+        console.error('Erreur mise à jour curseur:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // 🤖 DEMANDE D'ASSISTANCE IA
+    ipcMain.handle('request-ai-assistance', async (event, request) => {
+      try {
+        const { fileName, content, cursorPosition, type } = request;
+        
+        let result;
+        switch (type) {
+          case 'analyze':
+            result = this.aiAssistant.analyzeCode(fileName, content, cursorPosition);
+            break;
+          case 'suggest':
+            result = this.aiAssistant.suggestImprovements(content, cursorPosition);
+            break;
+          case 'complete':
+            result = this.aiAssistant.generateCompletions(content, cursorPosition);
+            break;
+          default:
+            result = { error: 'Type de requête non supporté' };
+        }
+        
+        return { success: true, result };
+        
+      } catch (error) {
+        console.error('Erreur assistance IA:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // 🔧 CONFIGURATION
+    ipcMain.handle('update-config', async (event, configUpdate) => {
+      try {
+        for (const [key, value] of Object.entries(configUpdate)) {
+          this.config.set(key, value);
+        }
+        
+        // Appliquer les changements de configuration
+        this.applyConfigChanges(configUpdate);
+        
+        return { success: true };
+        
+      } catch (error) {
+        console.error('Erreur mise à jour config:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // 📊 STATISTIQUES
     ipcMain.handle('get-stats', async () => {
-      return {
+      const baseStats = {
         isHost: this.isHost,
         isConnected: this.isConnected,
         projectPath: this.projectPath,
         connectedClients: this.syncServer ? this.syncServer.clients.size : 0,
         sessionId: this.sessionId
       };
+      
+      const liveStats = this.stats.getReport();
+      const conflictStats = this.conflictResolver.getResolutionStats();
+      const wsStats = this.wsOptimized ? this.wsOptimized.getMetrics() : {};
+      const backupStats = this.backup ? this.backup.getStats() : {};
+      
+      return {
+        ...baseStats,
+        live: liveStats,
+        conflicts: conflictStats,
+        websocket: wsStats,
+        backup: backupStats
+      };
     });
 
-    // Ouvrir le dossier projet
-    ipcMain.handle('open-project-folder', async () => {
-      if (this.projectPath) {
-        shell.openPath(this.projectPath);
-      }
-    });
-
-    // **GESTION DES MISES À JOUR**
-    ipcMain.handle('check-for-updates', async () => {
-      try {
-        const result = await autoUpdater.checkForUpdatesAndNotify();
-        return { success: true, updateAvailable: !!result };
-      } catch (error) {
-        console.error('Erreur vérification mise à jour:', error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle('download-update', async () => {
-      try {
-        await autoUpdater.downloadUpdate();
-        return { success: true };
-      } catch (error) {
-        console.error('Erreur téléchargement mise à jour:', error);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle('install-update', async () => {
-      try {
-        autoUpdater.quitAndInstall();
-        return { success: true };
-      } catch (error) {
-        console.error('Erreur installation mise à jour:', error);
-        return { success: false, error: error.message };
-      }
-    });
+    // Handlers de mise à jour...
+    this.setupUpdateHandlers();
   }
 
-  setupAutoUpdater() {
-    // Configuration de l'auto-updater
-    autoUpdater.logger = require('electron-log');
-    autoUpdater.logger.transports.file.level = 'info';
+  // 🚀 SERVEUR OPTIMISÉ POUR LIVE CODING
+  async startOptimizedServer() {
+    const port = this.config.get('server.port');
+    const maxClients = this.config.get('server.maxClients');
     
-    // Désactiver les mises à jour automatiques pour laisser l'utilisateur choisir
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-
-    // Événements de mise à jour
-    autoUpdater.on('checking-for-update', () => {
-      console.log('🔍 Vérification des mises à jour...');
-      this.sendToRenderer('update-checking');
+    this.syncServer = new WebSocket.Server({ 
+      port: port,
+      maxPayload: 10 * 1024 * 1024 // 10MB max
     });
-
-    autoUpdater.on('update-available', (info) => {
-      console.log('✨ Mise à jour disponible:', info.version);
-      this.sendToRenderer('update-available', {
-        version: info.version,
-        releaseNotes: info.releaseNotes,
-        releaseDate: info.releaseDate
+    
+    this.syncServer.on('connection', (ws) => {
+      console.log('🔗 Nouvelle connexion live coding');
+      this.stats.recordConnection();
+      
+      ws.on('message', (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          this.handleLiveMessage(ws, message);
+        } catch (error) {
+          console.error('Erreur message live:', error);
+          this.stats.recordError();
+        }
+      });
+      
+      ws.on('close', () => {
+        this.handleClientDisconnect(ws);
+      });
+      
+      ws.on('error', (error) => {
+        console.error('Erreur WebSocket live:', error);
+        this.stats.recordError();
       });
     });
-
-    autoUpdater.on('update-not-available', (info) => {
-      console.log('✅ Application à jour');
-      this.sendToRenderer('update-not-available');
-    });
-
-    autoUpdater.on('error', (err) => {
-      console.error('❌ Erreur mise à jour:', err);
-      this.sendToRenderer('update-error', { error: err.message });
-    });
-
-    autoUpdater.on('download-progress', (progressObj) => {
-      console.log(`📥 Téléchargement: ${Math.round(progressObj.percent)}%`);
-      this.sendToRenderer('update-download-progress', {
-        percent: Math.round(progressObj.percent),
-        bytesPerSecond: progressObj.bytesPerSecond,
-        total: progressObj.total,
-        transferred: progressObj.transferred
-      });
-    });
-
-    autoUpdater.on('update-downloaded', (info) => {
-      console.log('✅ Mise à jour téléchargée, prête à installer');
-      this.sendToRenderer('update-downloaded', {
-        version: info.version
-      });
-    });
+    
+    console.log(`🔥 Serveur live coding sur port ${port}`);
   }
 
-  sendToRenderer(channel, data = {}) {
-    if (this.mainWindow && this.mainWindow.webContents) {
-      this.mainWindow.webContents.send(channel, data);
+  // 🔗 CONNEXION À SESSION LIVE
+  async connectToLiveSession(hostIP, sessionId, password) {
+    const wsUrl = `ws://${hostIP}:${this.config.get('server.port')}`;
+    
+    this.wsOptimized = new OptimizedWebSocket({
+      heartbeatInterval: 15000, // Plus fréquent pour le live coding
+      batchingInterval: 8 // 120fps pour ultra-réactivité
+    });
+    
+    // Events WebSocket optimisé
+    this.wsOptimized.on('connected', () => {
+      // Authentification
+      this.wsOptimized.send({
+        type: 'auth',
+        sessionId: sessionId,
+        password: password,
+        clientInfo: {
+          clientId: this.clientId,
+          userName: this.userName,
+          color: this.userColor
+        }
+      }, { priority: true });
+    });
+    
+    this.wsOptimized.on('operation', (message) => {
+      this.handleRemoteLiveOperation(message);
+    });
+    
+    this.wsOptimized.on('cursor_update', (message) => {
+      this.sendToRenderer('remote_cursor_update', message);
+    });
+    
+    this.wsOptimized.on('presence_update', (message) => {
+      this.sendToRenderer('presence_update', message);
+    });
+    
+    this.wsOptimized.connect(wsUrl);
+  }
+
+  // 📝 GESTION DES MESSAGES LIVE
+  handleLiveMessage(ws, message) {
+    switch (message.type) {
+      case 'auth':
+        this.handleLiveAuth(ws, message);
+        break;
+        
+      case 'operation':
+        this.handleLiveOperation(ws, message);
+        break;
+        
+      case 'cursor_update':
+        this.broadcastToOthers(ws, message);
+        break;
+        
+      case 'request_sync':
+        this.sendFullProjectSync(ws);
+        break;
+        
+      default:
+        console.log('Message live non géré:', message.type);
     }
   }
 
-  scanProjectFiles() {
+  // 🔐 AUTHENTIFICATION LIVE
+  handleLiveAuth(ws, message) {
+    const { sessionId, password, clientInfo } = message;
+    
+    if (this.auth.validateSession(sessionId, password)) {
+      // Authentification réussie
+      ws.clientInfo = clientInfo;
+      ws.authenticated = true;
+      
+      // Ajouter le client au moteur live
+      this.liveSyncEngine.addClient(
+        clientInfo.clientId, 
+        clientInfo.userName,
+        clientInfo.avatar
+      );
+      
+      // Envoyer confirmation
+      ws.send(JSON.stringify({
+        type: 'auth_success',
+        sessionId: sessionId
+      }));
+      
+      // Envoyer l'état complet du projet
+      this.sendFullProjectSync(ws);
+      
+      console.log(`✅ Client authentifié: ${clientInfo.userName}`);
+      
+    } else {
+      // Authentification échouée
+      ws.send(JSON.stringify({
+        type: 'auth_error',
+        error: 'Session ou mot de passe invalide'
+      }));
+      
+      ws.close(4001, 'Authentication failed');
+    }
+  }
+
+  // ⚡ DIFFUSION BATCH OPTIMISÉE
+  broadcastLiveBatch(batch) {
+    if (!this.syncServer) return;
+    
+    const message = JSON.stringify({
+      type: 'live_batch',
+      batch: batch,
+      timestamp: Date.now()
+    });
+    
+    this.syncServer.clients.forEach(client => {
+      if (client.authenticated && client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(message);
+        } catch (error) {
+          console.error('Erreur envoi batch:', error);
+          this.stats.recordError();
+        }
+      }
+    });
+  }
+
+  // 🧠 ANALYSE IA DU PROJET
+  analyzeProjectWithAI() {
     if (!this.projectPath) return;
     
-    this.projectFiles.clear();
-    
-    const scanDir = (dirPath, relativePath = '') => {
+    const files = Array.from(this.projectFiles.keys());
+    files.forEach(fileName => {
+      const filePath = this.projectFiles.get(fileName).fullPath;
+      
       try {
-        const items = fs.readdirSync(dirPath);
+        const content = fs.readFileSync(filePath, 'utf8');
+        const analysis = this.aiAssistant.analyzeCode(fileName, content);
         
-        items.forEach(item => {
-          const fullPath = path.join(dirPath, item);
-          const relPath = path.join(relativePath, item);
-          
-          // Ignorer certains dossiers et fichiers
-          if (this.shouldIgnoreFile(item)) {
-            return;
-          }
+        // Envoyer l'analyse au renderer
+        this.sendToRenderer('ai_analysis', {
+          fileName: fileName,
+          analysis: analysis
+        });
+        
+      } catch (error) {
+        console.error(`Erreur analyse IA ${fileName}:`, error);
+      }
+    });
+  }
 
-          const stat = fs.statSync(fullPath);
+  generateUserColor() {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
+      '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43'
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  // ... reste des méthodes existantes (scanProjectFiles, setupFileWatcher, etc.)
+  
+  // 📁 Scanner les fichiers projet
+  scanProjectFiles() {
+    this.projectFiles.clear();
+    console.log(`🔍 Scan du projet: ${this.projectPath}`);
+    
+    const maxDepth = this.config.get('files.maxDepth');
+    const scanDir = (dirPath, relativePath = '', depth = 0) => {
+      if (depth > maxDepth) {
+        console.warn(`⚠️ Profondeur maximale atteinte: ${dirPath}`);
+        return;
+      }
+      
+      try {
+        const files = fs.readdirSync(dirPath);
+        files.forEach(file => {
+          const fullPath = path.join(dirPath, file);
+          const relativeFilePath = path.join(relativePath, file).replace(/\\/g, '/');
           
+          if (this.shouldIgnoreFile(file)) return;
+          
+          const stat = fs.statSync(fullPath);
           if (stat.isDirectory()) {
-            scanDir(fullPath, relPath);
+            scanDir(fullPath, relativeFilePath, depth + 1);
           } else {
-            this.projectFiles.set(relPath, {
+            this.projectFiles.set(relativeFilePath, {
               fullPath: fullPath,
               size: stat.size,
               modified: stat.mtime.getTime(),
-              status: 'synced'
+              status: 'ready'
             });
+            
+            // Initialiser le document pour le live sync
+            if (this.liveSyncEngine) {
+              const content = fs.readFileSync(fullPath, 'utf8');
+              this.liveSyncEngine.initializeDocument(relativeFilePath, content);
+            }
           }
         });
       } catch (error) {
         console.error(`Erreur scan dossier ${dirPath}:`, error);
       }
     };
-
+    
     scanDir(this.projectPath);
-    console.log(`📁 Projet scanné: ${this.projectFiles.size} fichiers trouvés`);
+    console.log(`✅ ${this.projectFiles.size} fichiers trouvés`);
   }
 
   shouldIgnoreFile(fileName) {
-    const ignorePatterns = [
-      /^\./, // fichiers cachés
-      /^node_modules$/,
-      /^\.git$/,
-      /^dist$/,
-      /^build$/,
-      /^coverage$/,
-      /\.log$/,
-      /\.tmp$/,
-      /\.temp$/,
-      /^\.DS_Store$/,
-      /^Thumbs\.db$/
-    ];
+    const ignorePatterns = this.config.get('files.ignorePatterns');
     
-    return ignorePatterns.some(pattern => pattern.test(fileName));
-  }
-
-  async startServer() {
-    return new Promise((resolve, reject) => {
-      // MODE LOCAL DIRECT - Créer un vrai serveur WebSocket
-      this.syncServer = new WebSocket.Server({ port: this.serverPort });
-      
-      this.syncServer.on('listening', () => {
-        console.log(`🖥️ Serveur local démarré sur le port ${this.serverPort}`);
-        this.startHeartbeat();
-        resolve();
-      });
-
-      this.syncServer.on('connection', (ws) => {
-        console.log('👤 Nouveau client connecté');
-        
-        ws.send(JSON.stringify({
-          type: 'session_info',
-          sessionId: this.sessionId,
-          message: 'Connexion établie'
-        }));
-
-        ws.on('message', (data) => {
-          try {
-            const message = JSON.parse(data.toString());
-            this.handleServerMessage(ws, message);
-          } catch (error) {
-            console.error('Erreur traitement message serveur:', error);
-          }
-        });
-
-        ws.on('close', () => {
-          console.log('👋 Client déconnecté');
-          this.updateUI();
-        });
-
-        this.updateUI();
-      });
-
-      this.syncServer.on('error', (error) => {
-        console.error('Erreur serveur local:', error);
-        reject(error);
-      });
+    return ignorePatterns.some(pattern => {
+      if (pattern.includes('*')) {
+        const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+        return regex.test(fileName);
+      }
+      return fileName === pattern || fileName.startsWith(pattern);
     });
   }
 
-  async connectToSession(hostIP) {
-    return new Promise((resolve, reject) => {
-      console.log(`🔗 Connexion à ${hostIP}:${this.serverPort}...`);
-      
-      const wsUrl = `ws://${hostIP}:${this.serverPort}`;
-      this.syncClient = new WebSocket(wsUrl);
-      
-      this.syncClient.on('open', () => {
-        console.log('✅ Connecté au serveur');
-        this.isConnected = true;
-        this.startHeartbeat();
-        resolve();
-      });
-
-      this.syncClient.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          this.handleClientMessage(message);
-        } catch (error) {
-          console.error('Erreur traitement message client:', error);
-        }
-      });
-
-      this.syncClient.on('close', () => {
-        console.log('🔌 Connexion fermée');
-        this.isConnected = false;
-        this.updateUI();
-      });
-
-      this.syncClient.on('error', (error) => {
-        console.error('Erreur connexion:', error);
-        this.isConnected = false;
-        reject(error);
-      });
-    });
-  }
-
-  handleRelayMessage(message) {
-    switch (message.type) {
-      case 'room_created':
-        console.log(`🏠 Room créée: ${message.sessionId}`);
-        this.updateUI();
-        break;
-        
-      case 'room_joined':
-        console.log(`✅ Rejoint la room: ${message.sessionId}`);
-        this.requestInitialSync();
-        break;
-        
-      case 'client_joined':
-        console.log(`👤 Client connecté. Total: ${message.clientCount}`);
-        this.updateUI();
-        break;
-        
-      case 'client_left':
-        console.log(`👋 Client déconnecté. Restant: ${message.clientCount}`);
-        this.updateUI();
-        break;
-        
-      case 'relayed_data':
-        this.handleSyncData(message.data);
-        break;
-        
-      case 'room_closed':
-        console.log('🏠 Room fermée par l\'hôte');
-        this.disconnect();
-        break;
-        
-      case 'error':
-        console.error('❌ Erreur serveur:', message.message);
-        break;
-        
-      case 'pong':
-        // Heartbeat response
-        break;
-    }
-  }
-  
-  handleSyncData(data) {
-    switch (data.type) {
-      case 'request_initial_sync':
-        if (this.isHost) {
-          this.sendProjectFiles();
-        }
-        break;
-      case 'initial_sync':
-        this.applyInitialSync(data);
-        break;
-      case 'file_change':
-        console.log(`📥 Changement reçu: ${data.action} - ${data.filePath}`);
-        this.applyFileChange(data);
-        break;
+  // Méthodes manquantes ajoutées
+  sendToRenderer(channel, data) {
+    if (this.mainWindow && this.mainWindow.webContents) {
+      this.mainWindow.webContents.send(channel, data);
     }
   }
 
-
-
-  handleServerMessage(ws, message) {
-    switch (message.type) {
-      case 'request_initial_sync':
-        this.sendProjectFiles(ws);
-        break;
-      case 'file_change':
-        console.log(`📥 Changement reçu: ${message.action} - ${message.filePath}`);
-        this.applyFileChange(message);
-        this.broadcastToOthers(ws, message);
-        break;
-      case 'ping':
-        ws.send(JSON.stringify({ type: 'pong' }));
-        break;
-    }
-  }
-
-  handleClientMessage(message) {
-    switch (message.type) {
-      case 'session_info':
-        this.sessionId = message.sessionId;
-        console.log(`📋 Session reçue: ${this.sessionId}`);
-        break;
-      case 'initial_sync':
-        this.applyInitialSync(message);
-        break;
-      case 'file_change':
-        console.log(`📥 Changement reçu du serveur: ${message.action} - ${message.filePath}`);
-        this.applyFileChange(message);
-        break;
-      case 'pong':
-        break;
-    }
-  }
-
-  sendProjectFiles(ws) {
-    if (!this.projectPath || this.projectFiles.size === 0) {
-      ws.send(JSON.stringify({
-        type: 'initial_sync',
-        files: {},
-        projectName: path.basename(this.projectPath || 'empty-project'),
-        sessionId: this.sessionId
-      }));
-      return;
-    }
-
-    const files = {};
+  initializeProjectDocuments() {
+    if (!this.projectPath) return;
     
-    this.projectFiles.forEach((fileInfo, relativePath) => {
+    console.log('🔧 Initialisation des documents du projet...');
+    this.projectFiles.forEach((fileInfo, fileName) => {
       try {
         const content = fs.readFileSync(fileInfo.fullPath, 'utf8');
-        files[relativePath] = {
+        this.liveSyncEngine.initializeDocument(fileName, content);
+      } catch (error) {
+        console.error(`Erreur initialisation document ${fileName}:`, error);
+      }
+    });
+  }
+
+  setupFileWatcher() {
+    if (!this.projectPath) return;
+    
+    console.log('👀 Configuration du watcher de fichiers...');
+    
+    // Utiliser chokidar pour un watching plus robuste
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+    }
+    
+    // Watcher simple avec fs.watch pour l'instant
+    this.fileWatcher = fs.watch(this.projectPath, { recursive: true }, (eventType, filename) => {
+      if (filename && !this.shouldIgnoreFile(filename)) {
+        console.log(`📝 Fichier modifié: ${filename}`);
+        this.handleFileChange(filename, eventType);
+      }
+    });
+  }
+
+  handleFileChange(filename, eventType) {
+    const fullPath = path.join(this.projectPath, filename);
+    
+    try {
+      if (eventType === 'change' && fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const stat = fs.statSync(fullPath);
+        
+        // Mettre à jour les infos du fichier
+        this.projectFiles.set(filename, {
+          fullPath: fullPath,
+          size: stat.size,
+          modified: stat.mtime.getTime(),
+          status: 'modified'
+        });
+        
+        // Notifier le renderer
+        this.sendToRenderer('file_changed', {
+          fileName: filename,
+          content: content,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error(`Erreur traitement changement fichier ${filename}:`, error);
+    }
+  }
+
+  setupUpdateHandlers() {
+    // Configuration des handlers de mise à jour
+    console.log('🔄 Configuration des handlers de mise à jour...');
+  }
+
+  handleClientDisconnect(ws) {
+    if (ws.clientInfo) {
+      console.log(`👋 Client déconnecté: ${ws.clientInfo.userName}`);
+      this.liveSyncEngine.removeClient(ws.clientInfo.clientId);
+      
+      // Notifier les autres clients
+      this.broadcastToOthers(ws, {
+        type: 'client_disconnected',
+        clientId: ws.clientInfo.clientId
+      });
+    }
+  }
+
+  handleRemoteLiveOperation(message) {
+    try {
+      const success = this.liveSyncEngine.applyTextOperation(
+        message.clientId,
+        message.fileName,
+        message.operation
+      );
+      
+      if (success) {
+        // Appliquer localement et notifier le renderer
+        this.sendToRenderer('remote_operation', message);
+      }
+    } catch (error) {
+      console.error('Erreur traitement opération distante:', error);
+    }
+  }
+
+  handleLiveOperation(ws, message) {
+    try {
+      // Appliquer l'opération
+      const success = this.liveSyncEngine.applyTextOperation(
+        message.clientId,
+        message.fileName,
+        message.operation
+      );
+      
+      if (success) {
+        // Diffuser aux autres clients
+        this.broadcastToOthers(ws, message);
+      }
+    } catch (error) {
+      console.error('Erreur traitement opération live:', error);
+    }
+  }
+
+  broadcastToOthers(excludeWs, message) {
+    if (!this.syncServer) return;
+    
+    const messageStr = JSON.stringify(message);
+    
+    this.syncServer.clients.forEach(client => {
+      if (client !== excludeWs && 
+          client.authenticated && 
+          client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(messageStr);
+        } catch (error) {
+          console.error('Erreur diffusion message:', error);
+        }
+      }
+    });
+  }
+
+  sendFullProjectSync(ws) {
+    if (!ws.authenticated) return;
+    
+    console.log('📦 Envoi synchronisation complète du projet...');
+    
+    const projectData = {
+      type: 'full_project_sync',
+      files: {},
+      timestamp: Date.now()
+    };
+    
+    // Envoyer le contenu de tous les fichiers
+    this.projectFiles.forEach((fileInfo, fileName) => {
+      try {
+        const content = fs.readFileSync(fileInfo.fullPath, 'utf8');
+        projectData.files[fileName] = {
           content: content,
           modified: fileInfo.modified,
           size: fileInfo.size
         };
       } catch (error) {
-        console.error(`Erreur lecture fichier ${fileInfo.fullPath}:`, error);
+        console.error(`Erreur lecture fichier ${fileName}:`, error);
       }
     });
-
-    const syncData = {
-      type: 'initial_sync',
-      files: files,
-      projectName: path.basename(this.projectPath),
-      sessionId: this.sessionId,
-      totalFiles: Object.keys(files).length
-    };
-
-    console.log(`📤 Envoi de ${Object.keys(files).length} fichiers au client`);
-    ws.send(JSON.stringify(syncData));
-  }
-  
-  sendRelayData(data) {
-    if (this.syncClient && this.syncClient.readyState === WebSocket.OPEN) {
-      this.syncClient.send(JSON.stringify({
-        type: 'relay_data',
-        data: data
-      }));
-    }
-  }
-
-  applyInitialSync(syncData) {
-    const { files, projectName, sessionId } = syncData;
-    
-    if (!this.projectPath) {
-      // Demander où créer le projet avec gestion intelligente des noms
-      dialog.showOpenDialog(this.mainWindow, {
-        properties: ['openDirectory'],
-        title: 'Choisir où synchroniser le projet'
-      }).then(result => {
-        if (!result.canceled && result.filePaths.length > 0) {
-          this.projectPath = this.getUniqueProjectPath(result.filePaths[0], projectName);
-          this.createProjectFromSync(syncData);
-        }
-      });
-    } else {
-      this.createProjectFromSync(syncData);
-    }
-  }
-
-  getUniqueProjectPath(parentDir, projectName) {
-    let basePath = path.join(parentDir, projectName);
-    let counter = 1;
-    
-    // Si le dossier existe déjà, ajouter un suffixe
-    while (fs.existsSync(basePath)) {
-      basePath = path.join(parentDir, `${projectName}_${counter}`);
-      counter++;
-    }
-    
-    return basePath;
-  }
-
-  createProjectFromSync(syncData) {
-    const { files, projectName, sessionId } = syncData;
     
     try {
-      // Créer le dossier projet si nécessaire
-      if (!fs.existsSync(this.projectPath)) {
-        fs.mkdirSync(this.projectPath, { recursive: true });
-        console.log(`📁 Dossier projet créé: ${this.projectPath}`);
-      }
-
-      let createdFiles = 0;
-      let errors = 0;
-
-      // **DÉSACTIVER LE WATCHER PENDANT LA SYNC INITIALE**
-      this.watcherEnabled = false;
-
-      // Créer tous les fichiers
-      Object.entries(files).forEach(([filePath, fileData]) => {
-        try {
-          const fullPath = path.join(this.projectPath, filePath);
-          const dirPath = path.dirname(fullPath);
-          
-          // Créer le dossier parent si nécessaire
-          if (!fs.existsSync(dirPath)) {
-            fs.mkdirSync(dirPath, { recursive: true });
-          }
-          
-          // Écrire le fichier
-          fs.writeFileSync(fullPath, fileData.content, 'utf8');
-          
-          // Créer hash pour le fichier
-          const crypto = require('crypto');
-          const hash = crypto.createHash('md5').update(fileData.content).digest('hex');
-          
-          // Mettre à jour la liste des fichiers
-          this.projectFiles.set(filePath, {
-            fullPath: fullPath,
-            size: fileData.size,
-            modified: fileData.modified,
-            status: 'synced',
-            hash: hash
-          });
-          
-          createdFiles++;
-        } catch (error) {
-          console.error(`Erreur création fichier ${filePath}:`, error);
-          errors++;
-        }
-      });
-
-      this.sessionId = sessionId;
-      
-      // **CONFIGURER LE WATCHER CÔTÉ CLIENT AUSSI**
-      this.setupFileWatcher();
-      
-      // **RÉACTIVER LE WATCHER APRÈS LA SYNC**
-      setTimeout(() => {
-        this.watcherEnabled = true;
-        console.log(`🎯 SYNCHRONISATION BIDIRECTIONNELLE ACTIVÉE - Client prêt!`);
-      }, 500);
-      
-      this.updateUI();
-      
-      console.log(`✅ Synchronisation terminée: ${createdFiles} fichiers créés, ${errors} erreurs`);
-      
-      this.mainWindow.webContents.send('sync-complete', {
-        message: 'Projet synchronisé avec succès!',
-        fileCount: createdFiles,
-        errors: errors
-      });
-
+      ws.send(JSON.stringify(projectData));
     } catch (error) {
-      console.error('Erreur synchronisation:', error);
-      this.mainWindow.webContents.send('sync-error', {
-        message: error.message
-      });
+      console.error('Erreur envoi sync complète:', error);
     }
   }
 
-  requestInitialSync() {
-    if (this.syncClient && this.syncClient.readyState === WebSocket.OPEN) {
-      this.syncClient.send(JSON.stringify({
-        type: 'request_initial_sync'
-      }));
-    }
-  }
-
-  setupFileWatcher() {
-    if (!this.projectPath) return;
-
-    // Nettoyer les anciens watchers
-    this.watchers.forEach(watcher => watcher.close());
-    this.watchers = [];
-
-    const watcher = chokidar.watch(this.projectPath, {
-      ignored: [
-        /(^|[\/\\])\../, // fichiers cachés
-        /node_modules/,
-        /\.git/,
-        /dist/,
-        /build/,
-        /coverage/
-      ],
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 100, // Stabilité pour éviter les doubles événements
-        pollInterval: 50
-      }
-    });
-
-    // Désactiver temporairement le watcher pour éviter les boucles lors de l'application de changements
-    this.watcherEnabled = true;
-
-    watcher.on('change', (filePath) => {
-      if (this.watcherEnabled) {
-        this.queueFileChange(filePath, 'change');
-      }
-    });
-
-    watcher.on('add', (filePath) => {
-      if (this.watcherEnabled) {
-        this.queueFileChange(filePath, 'add');
-      }
-    });
-
-    watcher.on('unlink', (filePath) => {
-      if (this.watcherEnabled) {
-        this.queueFileChange(filePath, 'delete');
-      }
-    });
-
-    watcher.on('error', (error) => {
-      console.error('Erreur file watcher:', error);
-    });
-
-    this.watchers.push(watcher);
-    console.log(`👁️ Surveillance des fichiers activée pour: ${this.projectPath}`);
-  }
-
-  // **NOUVEAU : Queue avec debouncing pour les changements de fichiers**
-  queueFileChange(filePath, action) {
-    const relativePath = path.relative(this.projectPath, filePath);
-    
-    // Ajouter à la queue
-    this.fileChangeQueue.set(relativePath, {
-      filePath,
-      action,
-      timestamp: Date.now()
-    });
-
-    // Debounce : traiter la queue après un délai
-    clearTimeout(this.debounceTimeout);
-    this.debounceTimeout = setTimeout(() => {
-      this.processFileChangeQueue();
-    }, 50); // 50ms de debounce
-  }
-
-  // **NOUVEAU : Traitement de la queue des changements**
-  processFileChangeQueue() {
-    const changes = Array.from(this.fileChangeQueue.values());
-    this.fileChangeQueue.clear();
-
-    // Grouper les changements par fichier (garder seulement le plus récent)
-    const latestChanges = new Map();
-    changes.forEach(change => {
-      const existing = latestChanges.get(change.filePath);
-      if (!existing || change.timestamp > existing.timestamp) {
-        latestChanges.set(change.filePath, change);
-      }
-    });
-
-    // Traiter chaque changement unique
-    latestChanges.forEach(change => {
-      this.handleFileChange(change.filePath, change.action);
-    });
-  }
-
-  handleFileChange(filePath, action) {
-    const relativePath = path.relative(this.projectPath, filePath);
-    
-    // Ignorer certains fichiers
-    if (this.shouldIgnoreFile(path.basename(filePath))) {
-      return;
-    }
-    
-    let content = null;
-    let fileSize = 0;
-    let hash = null;
-    let delta = null;
-    
-    if (action !== 'delete') {
-      try {
-        content = fs.readFileSync(filePath, 'utf8');
-        const stat = fs.statSync(filePath);
-        fileSize = stat.size;
-        
-        // Créer un hash pour détecter les vraies modifications
-        const crypto = require('crypto');
-        hash = crypto.createHash('md5').update(content).digest('hex');
-        
-        // Vérifier si le fichier a vraiment changé
-        const existingFile = this.projectFiles.get(relativePath);
-        if (existingFile && existingFile.hash === hash) {
-          return; // Pas de changement réel
-        }
-        
-        // **OPTIMISATION : Delta sync pour gros fichiers**
-        if (existingFile && fileSize > 1024) { // > 1KB
-          try {
-            const oldContent = fs.readFileSync(existingFile.fullPath, 'utf8');
-            delta = this.calculateDelta(oldContent, content);
-            console.log(`🔄 Delta calculé: ${delta.length} changements au lieu de ${fileSize} bytes`);
-          } catch (err) {
-            console.log('Fallback to full content');
-          }
-        }
-        
-        // Mettre à jour la liste des fichiers
-        this.projectFiles.set(relativePath, {
-          fullPath: filePath,
-          size: fileSize,
-          modified: Date.now(),
-          status: 'syncing',
-          hash: hash
-        });
-      } catch (error) {
-        console.error('Erreur lecture fichier:', error);
-        return;
-      }
-    } else {
-      this.projectFiles.delete(relativePath);
-    }
-
-    const changeData = {
-      type: 'file_change',
-      action: action,
-      filePath: relativePath,
-      content: delta ? null : content, // N'envoyer content que si pas de delta
-      delta: delta, // **NOUVEAU : Delta pour optimiser**
-      size: fileSize,
-      timestamp: Date.now(),
-      sessionId: this.sessionId,
-      hash: hash,
-      origin: this.isHost ? 'server' : 'client'
-    };
-
-    console.log(`📝 Changement détecté: ${action} - ${relativePath} (${this.isHost ? 'SERVEUR' : 'CLIENT'}) ${delta ? '[DELTA]' : '[FULL]'}`);
-
-    // **COMPRESSION WebSocket**
-    const compressed = this.compressMessage(changeData);
-
-    // **SYNCHRONISATION BIDIRECTIONNELLE**
-    if (this.isHost && this.syncServer) {
-      // Serveur : diffuser aux clients
-      this.broadcastToAll(compressed);
-    } else if (this.syncClient && this.syncClient.readyState === WebSocket.OPEN) {
-      // Client : envoyer au serveur
-      this.syncClient.send(compressed);
-    }
-
-    // Notifier l'interface
-    this.mainWindow.webContents.send('file-changed', {
-      action: action,
-      file: relativePath,
-      size: fileSize,
-      origin: changeData.origin
-    });
-
-    this.updateUI();
-  }
-
-  // **NOUVEAU : Calcul des deltas**
-  calculateDelta(oldContent, newContent) {
-    const oldLines = oldContent.split('\n');
-    const newLines = newContent.split('\n');
-    const deltas = [];
-    
-    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-      if (oldLines[i] !== newLines[i]) {
-        deltas.push({
-          line: i,
-          old: oldLines[i] || null,
-          new: newLines[i] || null
-        });
-      }
-    }
-    
-    return deltas;
-  }
-
-  // **NOUVEAU : Compression des messages**
-  compressMessage(message) {
-    const zlib = require('zlib');
-    const jsonString = JSON.stringify(message);
-    
-    // Compresser seulement si > 500 bytes
-    if (jsonString.length > 500) {
-      const compressed = zlib.gzipSync(jsonString);
-      return JSON.stringify({
-        type: 'compressed',
-        data: compressed.toString('base64')
-      });
-    }
-    
-    return jsonString;
-  }
-
-  // **NOUVEAU : Décompression des messages**
-  decompressMessage(message) {
+  applyConfigChanges(configUpdate) {
     try {
-      const parsed = JSON.parse(message);
-      if (parsed.type === 'compressed') {
-        const zlib = require('zlib');
-        const compressed = Buffer.from(parsed.data, 'base64');
-        const decompressed = zlib.gunzipSync(compressed);
-        return JSON.parse(decompressed.toString());
-      }
-      return parsed;
-    } catch (error) {
-      console.error('Erreur décompression:', error);
-      return JSON.parse(message);
-    }
-  }
-
-  applyFileChange(changeData) {
-    if (!this.projectPath) return;
-
-    const { action, filePath, content, delta, sessionId, hash, origin } = changeData;
-    const fullPath = path.join(this.projectPath, filePath);
-    
-    // Éviter les boucles infinies - ne pas appliquer ses propres changements
-    if (origin === (this.isHost ? 'server' : 'client')) {
-      return;
-    }
-    
-    try {
-      // **DÉSACTIVER TEMPORAIREMENT LE WATCHER**
-      this.watcherEnabled = false;
+      Object.keys(configUpdate).forEach(key => {
+        this.config.set(key, configUpdate[key]);
+      });
       
-      switch (action) {
-        case 'change':
-        case 'add':
-          const dirPath = path.dirname(fullPath);
-          if (!fs.existsSync(dirPath)) {
-            fs.mkdirSync(dirPath, { recursive: true });
-          }
-          
-          let finalContent = content;
-          
-          // **APPLIQUER DELTA SI DISPONIBLE**
-          if (delta && fs.existsSync(fullPath)) {
-            try {
-              const currentContent = fs.readFileSync(fullPath, 'utf8');
-              finalContent = this.applyDelta(currentContent, delta);
-              console.log(`✅ Delta appliqué: ${delta.length} changements`);
-            } catch (err) {
-              console.log('Fallback to full content');
-              finalContent = content;
-            }
-          }
-          
-          // **AUTO-SAVE INSTANTANÉ**
-          fs.writeFileSync(fullPath, finalContent, 'utf8');
-          
-          // Mettre à jour la liste des fichiers
-          const stat = fs.statSync(fullPath);
-          this.projectFiles.set(filePath, {
-            fullPath: fullPath,
-            size: stat.size,
-            modified: Date.now(),
-            status: 'synced',
-            hash: hash
-          });
-          break;
-          
-        case 'delete':
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
-          this.projectFiles.delete(filePath);
-          break;
-      }
-
-      console.log(`✅ Changement appliqué: ${action} - ${filePath} (depuis ${origin})`);
-
-      // **PROPAGER AUX AUTRES CLIENTS** (si on est le serveur)
-      if (this.isHost && this.syncServer && origin === 'client') {
-        const compressed = this.compressMessage(changeData);
-        this.broadcastToAll(compressed);
-      }
-
-      this.mainWindow.webContents.send('file-changed', {
-        action: action,
-        file: filePath,
-        origin: origin
-      });
-
-      // **RÉACTIVER LE WATCHER APRÈS UN DÉLAI**
-      setTimeout(() => {
-        this.watcherEnabled = true;
-      }, 100);
-
+      this.config.save();
+      console.log('⚙️ Configuration mise à jour');
+      
     } catch (error) {
-      console.error('Erreur application changement:', error);
-      this.watcherEnabled = true;
+      console.error('Erreur application config:', error);
     }
-  }
-
-  // **NOUVEAU : Application des deltas**
-  applyDelta(content, deltas) {
-    const lines = content.split('\n');
-    
-    // Appliquer les changements en ordre inverse pour ne pas décaler les numéros de lignes
-    deltas.sort((a, b) => b.line - a.line);
-    
-    deltas.forEach(delta => {
-      if (delta.new === null) {
-        // Suppression de ligne
-        lines.splice(delta.line, 1);
-      } else if (delta.old === null) {
-        // Ajout de ligne
-        lines.splice(delta.line, 0, delta.new);
-      } else {
-        // Modification de ligne
-        lines[delta.line] = delta.new;
-      }
-    });
-    
-    return lines.join('\n');
-  }
-
-  broadcastToAll(message) {
-    if (this.syncServer) {
-      this.syncServer.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(message));
-        }
-      });
-    }
-  }
-
-  broadcastToOthers(excludeWs, message) {
-    if (this.syncServer) {
-      this.syncServer.clients.forEach(client => {
-        if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(message));
-        }
-      });
-    }
-  }
-
-  updateUI() {
-    const stats = {
-      isHost: this.isHost,
-      isConnected: this.isConnected,
-      projectPath: this.projectPath,
-      connectedClients: this.syncServer ? this.syncServer.clients.size : 0,
-      sessionId: this.sessionId,
-      fileCount: this.projectFiles.size
-    };
-
-    this.mainWindow.webContents.send('stats-updated', stats);
-  }
-
-  // Heartbeat pour maintenir les connexions
-  startHeartbeat() {
-    setInterval(() => {
-      if (this.isHost && this.syncServer) {
-        this.broadcastToAll({ type: 'ping' });
-      } else if (this.syncClient && this.syncClient.readyState === WebSocket.OPEN) {
-        this.syncClient.send(JSON.stringify({ type: 'ping' }));
-      }
-    }, 30000); // Ping toutes les 30 secondes
   }
 
   disconnect() {
-    this.isHost = false;
-    this.isConnected = false;
-    this.sessionId = null;
+    console.log('🔌 Déconnexion...');
+    
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+    }
     
     if (this.syncServer) {
       this.syncServer.close();
-      this.syncServer = null;
-      console.log('🖥️ Serveur fermé');
     }
     
-    if (this.syncClient) {
-      this.syncClient.close();
-      this.syncClient = null;
-      console.log('🔗 Client déconnecté');
+    if (this.backup) {
+      this.backup.stop();
     }
     
-    this.watchers.forEach(watcher => watcher.close());
-    this.watchers = [];
-    
-    this.updateUI();
+    if (this.liveSyncEngine) {
+      this.liveSyncEngine.cleanup();
+    }
   }
 }
 
@@ -1052,7 +811,6 @@ const codeSyncApp = new CodeSyncApp();
 
 app.whenReady().then(() => {
   codeSyncApp.createWindow();
-  codeSyncApp.startHeartbeat();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -10,12 +10,33 @@ let appState = {
     connectedClients: 0
 };
 
+// Gestionnaire d'événements pour le nettoyage
+let eventListeners = [];
+
 // Initialisation
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
     setupEventListeners();
     updateUI();
 });
+
+// Nettoyage lors de la fermeture
+window.addEventListener('beforeunload', () => {
+    cleanup();
+});
+
+function cleanup() {
+    // Nettoyer tous les event listeners
+    eventListeners.forEach(({ event, handler }) => {
+        ipcRenderer.removeListener(event, handler);
+    });
+    eventListeners = [];
+}
+
+function addEventListeners(event, handler) {
+    ipcRenderer.on(event, handler);
+    eventListeners.push({ event, handler });
+}
 
 function initializeApp() {
     console.log('🚀 CodeSync initialisé');
@@ -25,20 +46,20 @@ function initializeApp() {
 
 function setupEventListeners() {
     // Écouter les mises à jour de statut du processus principal
-    ipcRenderer.on('stats-updated', (event, stats) => {
+    addEventListeners('stats-updated', (event, stats) => {
         appState = { ...appState, ...stats };
         updateUI();
         updateConnectionStatus();
     });
 
     // Écouter les changements de fichiers
-    ipcRenderer.on('file-changed', (event, data) => {
+    addEventListeners('file-changed', (event, data) => {
         handleFileChange(data);
         addActivity(`📝 ${getActionIcon(data.action)} ${data.file}`, data.action);
     });
 
     // Écouter la synchronisation complète
-    ipcRenderer.on('sync-complete', (event, data) => {
+    addEventListeners('sync-complete', (event, data) => {
         showNotification(`✅ Synchronisation terminée! ${data.fileCount} fichiers`, 'success');
         addActivity(`🔄 Sync complète: ${data.fileCount} fichiers`, 'sync');
         // Rafraîchir la liste des fichiers
@@ -46,7 +67,7 @@ function setupEventListeners() {
     });
 
     // Écouter les erreurs
-    ipcRenderer.on('sync-error', (event, error) => {
+    addEventListeners('sync-error', (event, error) => {
         showNotification(`❌ Erreur: ${error.message}`, 'error');
         addActivity(`⚠️ Erreur: ${error.message}`, 'error');
     });
@@ -378,31 +399,37 @@ function hideConnect() {
 async function connectToHost(event) {
     event.preventDefault();
     
-    const ip = document.getElementById('hostIp').value.trim();
+    const hostIp = document.getElementById('hostIp').value.trim();
     
-    if (!ip) {
-        showNotification('⚠️ Veuillez entrer une adresse IP', 'warning');
+    // Validation de l'IP
+    if (!hostIp) {
+        showNotification('❌ Veuillez saisir une adresse IP', 'error');
         return;
     }
-
+    
+    // Validation basique de l'IP/hostname
+    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^localhost$|^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!ipRegex.test(hostIp)) {
+        showNotification('❌ Format d\'adresse IP invalide', 'error');
+        return;
+    }
+    
+    showNotification('🔄 Connexion en cours...', 'info');
+    
     try {
-        addActivity(`🔗 Connexion à ${ip}:8080...`, 'info');
-        const result = await ipcRenderer.invoke('connect-to-host', { ip });
+        const result = await ipcRenderer.invoke('connect-to-host', { ip: hostIp });
         
         if (result.success) {
-            showNotification(`✅ Connecté à ${ip}:8080`, 'success');
-            addActivity(`🔗 Connecté à ${ip}:8080`, 'success');
+            showNotification('✅ ' + result.message, 'success');
             hideConnect();
-            
-            // Le client va recevoir les fichiers automatiquement
-            addActivity('⏳ Synchronisation des fichiers en cours...', 'info');
+            addActivity(`🔗 Connecté à ${hostIp}`, 'success');
         } else {
-            showNotification(`❌ ${result.error}`, 'error');
-            addActivity(`⚠️ Erreur connexion: ${result.error}`, 'error');
+            showNotification('❌ ' + result.error, 'error');
+            addActivity(`❌ Échec connexion à ${hostIp}: ${result.error}`, 'error');
         }
     } catch (error) {
-        showNotification('❌ Erreur lors de la connexion', 'error');
-        addActivity('⚠️ Erreur connexion', 'error');
+        showNotification('❌ Erreur de connexion: ' + error.message, 'error');
+        addActivity(`❌ Erreur: ${error.message}`, 'error');
     }
 }
 
@@ -726,13 +753,13 @@ async function installUpdate() {
 // Gestionnaires d'événements de mise à jour
 function setupUpdateEventListeners() {
     // Vérification en cours
-    ipcRenderer.on('update-checking', () => {
+    addEventListeners('update-checking', () => {
         document.getElementById('updateInfo').textContent = 'Vérification en cours...';
         addActivity('🔍 Vérification des mises à jour...', 'info');
     });
     
     // Mise à jour disponible
-    ipcRenderer.on('update-available', (event, info) => {
+    addEventListeners('update-available', (event, info) => {
         const updateInfo = document.getElementById('updateInfo');
         const downloadBtn = document.getElementById('downloadBtn');
         
@@ -749,20 +776,20 @@ function setupUpdateEventListeners() {
     });
     
     // Pas de mise à jour
-    ipcRenderer.on('update-not-available', () => {
+    addEventListeners('update-not-available', () => {
         document.getElementById('updateInfo').textContent = '✅ Application à jour';
         addActivity('✅ Application déjà à jour', 'success');
     });
     
     // Erreur de mise à jour
-    ipcRenderer.on('update-error', (event, error) => {
+    addEventListeners('update-error', (event, error) => {
         document.getElementById('updateInfo').textContent = `❌ Erreur: ${error.error}`;
         document.getElementById('updateProgress').style.display = 'none';
         addActivity(`❌ Erreur mise à jour: ${error.error}`, 'error');
     });
     
     // Progression du téléchargement
-    ipcRenderer.on('update-download-progress', (event, progress) => {
+    addEventListeners('update-download-progress', (event, progress) => {
         const progressFill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
         const updateInfo = document.getElementById('updateInfo');
@@ -773,7 +800,7 @@ function setupUpdateEventListeners() {
     });
     
     // Téléchargement terminé
-    ipcRenderer.on('update-downloaded', (event, info) => {
+    addEventListeners('update-downloaded', (event, info) => {
         const updateInfo = document.getElementById('updateInfo');
         const updateProgress = document.getElementById('updateProgress');
         const installBtn = document.getElementById('installBtn');

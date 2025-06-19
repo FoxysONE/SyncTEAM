@@ -13,10 +13,10 @@ const relayPackage = {
   "name": "codesync-relay",
   "version": "1.0.0",
   "description": "Serveur de relais pour CodeSync",
-  "main": "src/relay-server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/relay-server.js",
-    "dev": "node src/relay-server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "ws": "^8.13.0"
@@ -34,8 +34,8 @@ if (!fs.existsSync('relay')) {
 // Écrire le package.json dans le dossier relay
 fs.writeFileSync('relay/package.json', JSON.stringify(relayPackage, null, 2));
 
-// Copier le serveur de relais
-fs.copyFileSync('src/relay-server.js', 'relay/server.js');
+// Copier le serveur de relais depuis le dossier relay
+fs.copyFileSync('relay/server.js', 'relay/server.js');
 
 // Créer un Dockerfile simple
 const dockerfile = `FROM node:16-alpine
