@@ -552,9 +552,24 @@ class CodeSyncApp {
   async startOptimizedServer() {
     const port = this.configManager.get('server.port');
     const maxClients = this.configManager.get('server.maxClients');
+    const config = this.configManager.getConfig();
+    
+    // Déterminer l'host selon le mode
+    let host = 'localhost'; // Par défaut local
+    
+    if (config.networkMode === 'network') {
+      host = '0.0.0.0'; // Écoute sur toutes les interfaces
+      console.log('🌐 Mode réseau activé - Ports requis dans le firewall');
+    } else if (config.networkMode === 'auto') {
+      // Auto-détection basée sur la présence d'autres machines
+      host = this.shouldEnableNetworkMode() ? '0.0.0.0' : 'localhost';
+    } else {
+      console.log('🔒 Mode local uniquement - Aucun port à ouvrir');
+    }
     
     this.syncServer = new WebSocket.Server({ 
       port: port,
+      host: host, // Spécifier l'host selon la configuration
       maxPayload: 10 * 1024 * 1024 // 10MB max
       });
 
@@ -582,7 +597,20 @@ class CodeSyncApp {
       });
     });
     
-    console.log(`🔥 Serveur live coding sur port ${port}`);
+    console.log(`🚀 Serveur live coding sur ${host}:${port}`);
+    
+    if (host === '0.0.0.0') {
+      const networkInterfaces = require('os').networkInterfaces();
+      Object.keys(networkInterfaces).forEach(interfaceName => {
+        networkInterfaces[interfaceName].forEach(iface => {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            console.log(`🌐 Accessible depuis: ${iface.address}:${port}`);
+          }
+        });
+      });
+    } else {
+      console.log(`🏠 Accessible uniquement en local: localhost:${port}`);
+    }
   }
 
   // 🔗 CONNEXION À SESSION LIVE
@@ -738,6 +766,12 @@ class CodeSyncApp {
       '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43'
     ];
     return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  // Déterminer si le mode réseau doit être activé automatiquement
+  shouldEnableNetworkMode() {
+    // Logique simple : si plus de 0 clients connectés récemment
+    return this.syncServer && this.syncServer.clients.size > 0;
   }
 
   // ... reste des méthodes existantes (scanProjectFiles, setupFileWatcher, etc.)

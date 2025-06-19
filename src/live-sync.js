@@ -719,6 +719,26 @@ class LiveSyncEngine extends EventEmitter {
       console.log('📊 Collecte de métriques arrêtée');
     }
   }
+
+  // Nettoyage complet lors de la fermeture
+  cleanup() {
+    console.log('🧹 Nettoyage LiveSyncEngine...');
+    
+    // Arrêter le serveur
+    this.stopServer();
+    
+    // Arrêter les métriques
+    this.stopMetricsCollection();
+    
+    // Nettoyer les données
+    this.documents.clear();
+    this.clients.clear();
+    this.operationHistory = [];
+    this.lineLocks.clear();
+    this.annotations.clear();
+    
+    console.log('✅ LiveSyncEngine nettoyé');
+  }
 }
 
 module.exports = LiveSyncEngine; 
