@@ -72,6 +72,36 @@ function setupEventListeners() {
         addActivity(`⚠️ Erreur: ${error.message}`, 'error');
     });
     
+    // Écouter la liste des fichiers du projet
+    addEventListeners('project-files-list', (event, data) => {
+        console.log('📋 Réception de la liste des fichiers:', data);
+        
+        // Vider la liste actuelle
+        appState.projectFiles.clear();
+        
+        // Ajouter les fichiers réels
+        data.files.forEach(file => {
+            appState.projectFiles.set(file.name, {
+                status: file.status,
+                lastModified: file.modified,
+                size: file.size,
+                fullPath: file.fullPath
+            });
+        });
+        
+        // Mettre à jour l'affichage
+        updateFileList();
+        
+        // Afficher une notification
+        if (data.totalFiles === 0) {
+            showNotification('📁 Dossier vide - Aucun fichier détecté', 'info');
+            addActivity('📁 Dossier projet vide', 'info');
+        } else {
+            showNotification(`📁 ${data.totalFiles} fichier(s) détecté(s)`, 'success');
+            addActivity(`📁 ${data.totalFiles} fichier(s) chargé(s)`, 'success');
+        }
+    });
+    
     // Configurer les événements de mise à jour
     setupUpdateEventListeners();
 }
@@ -330,13 +360,15 @@ function showAllFiles() {
 
 // Écrans
 function showWelcomeScreen() {
-    document.getElementById('welcome').style.display = 'block';
+    document.getElementById('welcomeScreen').style.display = 'block';
     document.getElementById('dashboard').style.display = 'none';
 }
 
 function showDashboard() {
-    document.getElementById('welcome').style.display = 'none';
-    document.getElementById('dashboard').style.display = 'grid';
+    document.getElementById('welcomeScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    
+    // Mettre à jour la liste des fichiers avec les vrais fichiers
     updateFileList();
 }
 
@@ -346,45 +378,49 @@ async function selectProject() {
         const result = await ipcRenderer.invoke('select-project-folder');
         if (result.success) {
             appState.projectPath = result.path;
-            showNotification('✅ Projet sélectionné avec succès!', 'success');
-            addActivity(`📁 Projet sélectionné: ${result.path.split(/[\\\/]/).pop()}`, 'info');
+            showNotification('✅ Projet sélectionné avec succès', 'success');
+            addActivity(`📁 Projet sélectionné: ${result.path}`, 'success');
             
-            // Simuler quelques fichiers pour la démo
-            setTimeout(() => {
-                simulateProjectFiles();
-            }, 500);
+            // Demander la liste des fichiers réels au processus principal
+            requestProjectFiles();
             
             updateUI();
+        } else {
+            showNotification('❌ Erreur lors de la sélection du projet', 'error');
         }
     } catch (error) {
+        console.error('Erreur sélection projet:', error);
         showNotification('❌ Erreur lors de la sélection du projet', 'error');
-        addActivity('⚠️ Erreur sélection projet', 'error');
     }
 }
 
 async function startHost() {
     if (!appState.projectPath) {
-        showNotification('⚠️ Veuillez d\'abord sélectionner un projet', 'warning');
+        showNotification('⚠️ Veuillez sélectionner un projet d\'abord', 'warning');
         return;
     }
-
+    
     try {
-        addActivity('🖥️ Démarrage du serveur...', 'info');
-        const result = await ipcRenderer.invoke('start-host');
-        
+        const result = await ipcRenderer.invoke('start-live-session');
         if (result.success) {
-            showNotification(`✅ Serveur démarré sur le port ${result.port}`, 'success');
-            addActivity(`🖥️ Serveur actif - Port ${result.port}`, 'success');
+            appState.isHost = true;
+            appState.isConnected = true;
             
-            // Simuler des fichiers du projet
-            simulateProjectFiles();
+            showNotification(`🚀 Session démarrée! ID: ${result.sessionId}`, 'success');
+            addActivity(`🖥️ Serveur démarré sur le port ${result.port}`, 'success');
+            addActivity(`🔑 Session ID: ${result.sessionId}`, 'info');
+            addActivity(`🔐 Mot de passe: ${result.password}`, 'info');
+            
+            // Demander la liste des fichiers réels
+            requestProjectFiles();
+            
+            updateUI();
         } else {
-            showNotification(`❌ ${result.error}`, 'error');
-            addActivity(`⚠️ Erreur serveur: ${result.error}`, 'error');
+            showNotification(`❌ Erreur: ${result.error}`, 'error');
         }
     } catch (error) {
+        console.error('Erreur démarrage serveur:', error);
         showNotification('❌ Erreur lors du démarrage du serveur', 'error');
-        addActivity('⚠️ Erreur démarrage serveur', 'error');
     }
 }
 
@@ -606,31 +642,6 @@ function updateActivityDisplay() {
     activityLogEl.innerHTML = activityHtml;
 }
 
-function simulateProjectFiles() {
-    // Simuler quelques fichiers pour la démo
-    const demoFiles = [
-        'index.html',
-        'style.css',
-        'script.js',
-        'package.json',
-        'README.md',
-        'src/main.js',
-        'src/utils.js',
-        'assets/logo.png'
-    ];
-    
-    demoFiles.forEach((file, index) => {
-        setTimeout(() => {
-            appState.projectFiles.set(file, {
-                status: 'synced',
-                lastModified: Date.now(),
-                size: Math.floor(Math.random() * 10000)
-            });
-            updateFileList();
-        }, index * 100);
-    });
-}
-
 function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
@@ -746,7 +757,7 @@ async function installUpdate() {
     } catch (error) {
         showNotification('Erreur lors de l\'installation', 'error');
         installBtn.disabled = false;
-        installBtn.textContent = '🚀 Installer';
+        installBtn.textContent = 'Installer';
     }
 }
 
@@ -832,5 +843,14 @@ function formatBytes(bytes, decimals = 2) {
 setTimeout(() => {
     checkForUpdates();
 }, 10000);
+
+// Nouvelle fonction pour demander les fichiers réels
+function requestProjectFiles() {
+    // Vider la liste actuelle
+    appState.projectFiles.clear();
+    
+    // Demander au processus principal la liste des fichiers
+    ipcRenderer.send('request-project-files');
+}
 
 console.log('🎯 CodeSync renderer initialisé - Prêt pour la synchronisation!'); 

@@ -14,6 +14,7 @@ const AuthManager = require('./auth');
 const StatsManager = require('./stats');
 const ConfigManager = require('./config');
 const BackupManager = require('./backup');
+const GitHubUpdateChecker = require('./github-update-checker');
 
 class CodeSyncApp {
   constructor() {
@@ -21,6 +22,7 @@ class CodeSyncApp {
     this.syncServer = null;
     this.syncClient = null;
     this.projectPath = '';
+    this.projectFiles = new Map();
     this.isHost = false;
     this.isConnected = false;
     this.watchers = [];
@@ -61,15 +63,52 @@ class CodeSyncApp {
   }
 
   setupAutoUpdater() {
-    // Configuration de l'auto-updater (optionnel)
-    // En production, vous pourriez utiliser electron-updater
-    console.log('🔄 Auto-updater configuré (mode développement)');
+    // Configuration de l'auto-updater GitHub
+    console.log('🔄 Auto-updater GitHub configuré');
     
-    // Vérification de mise à jour simulée
-    if (process.env.NODE_ENV === 'production') {
-      // Ici vous pourriez intégrer electron-updater
-      // autoUpdater.checkForUpdatesAndNotify();
-    }
+    // Vérification automatique au démarrage (après 5 secondes)
+    setTimeout(async () => {
+      try {
+        console.log('🔍 Vérification automatique des mises à jour...');
+        const updateChecker = new GitHubUpdateChecker();
+        const updateInfo = await updateChecker.checkForUpdates();
+        
+        if (updateInfo.hasUpdate) {
+          console.log(`🆕 Mise à jour disponible: ${updateInfo.version}`);
+          
+          // Notifier l'interface
+          this.sendToRenderer('update-available', {
+            version: updateInfo.version,
+            releaseNotes: updateInfo.commitMessage,
+            message: updateInfo.message
+          });
+        } else {
+          console.log('✅ Application à jour');
+          this.sendToRenderer('update-not-available');
+        }
+      } catch (error) {
+        console.error('❌ Erreur vérification auto:', error);
+        this.sendToRenderer('update-error', { error: error.message });
+      }
+    }, 5000);
+    
+    // Vérification périodique (toutes les heures)
+    setInterval(async () => {
+      try {
+        const updateChecker = new GitHubUpdateChecker();
+        const updateInfo = await updateChecker.checkForUpdates();
+        
+        if (updateInfo.hasUpdate) {
+          this.sendToRenderer('update-available', {
+            version: updateInfo.version,
+            releaseNotes: updateInfo.commitMessage,
+            message: updateInfo.message
+          });
+        }
+      } catch (error) {
+        console.warn('⚠️ Vérification périodique échouée:', error.message);
+      }
+    }, 3600000); // 1 heure
   }
 
   setupLiveSyncEvents() {
@@ -129,6 +168,12 @@ class CodeSyncApp {
       });
     });
 
+    // Empêcher la fermeture accidentelle
+    this.mainWindow.on('close', (event) => {
+      console.log('🔒 Tentative de fermeture de l\'application');
+      // Ne pas empêcher la fermeture, juste logger
+    });
+
     // Dev tools en mode développement
     if (process.argv.includes('--dev')) {
       this.mainWindow.webContents.openDevTools();
@@ -158,6 +203,107 @@ class CodeSyncApp {
         return { success: true, path: this.projectPath };
       }
       return { success: false };
+    });
+
+    // Handler pour vérification des mises à jour GitHub
+    ipcMain.handle('check-for-updates', async () => {
+      console.log('🔄 Vérification des mises à jour GitHub...');
+      
+      try {
+        const updateChecker = new GitHubUpdateChecker();
+        const updateInfo = await updateChecker.checkForUpdates();
+        
+        if (updateInfo.hasUpdate) {
+          console.log(`✨ Nouvelle version disponible: ${updateInfo.latestCommit.substring(0, 7)}`);
+          return {
+            success: true,
+            hasUpdate: true,
+            version: updateInfo.latestCommit.substring(0, 7),
+            message: updateInfo.message,
+            releaseNotes: updateInfo.commitMessage,
+            downloadUrl: updateInfo.downloadUrl
+          };
+        } else {
+          console.log('✅ Application à jour');
+          return {
+            success: true,
+            hasUpdate: false,
+            message: 'Application à jour'
+          };
+        }
+      } catch (error) {
+        console.error('❌ Erreur vérification GitHub:', error);
+        return {
+          success: false,
+          error: error.message,
+          message: 'Erreur lors de la vérification'
+        };
+      }
+    });
+
+    // Handler pour télécharger la mise à jour
+    ipcMain.handle('download-update', async () => {
+      console.log('📥 Téléchargement de la mise à jour...');
+      
+      try {
+        const updateChecker = new GitHubUpdateChecker();
+        const result = await updateChecker.downloadUpdate();
+        
+        return {
+          success: true,
+          message: 'Téléchargement terminé'
+        };
+      } catch (error) {
+        console.error('❌ Erreur téléchargement:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    });
+
+    // Handler pour installer la mise à jour
+    ipcMain.handle('install-update', async () => {
+      console.log('🚀 Installation de la mise à jour...');
+      
+      try {
+        const updateChecker = new GitHubUpdateChecker();
+        await updateChecker.installUpdate();
+        
+        // Redémarrer l'application
+        app.relaunch();
+        app.exit();
+        
+        return { success: true };
+      } catch (error) {
+        console.error('❌ Erreur installation:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    });
+
+    // Handler pour envoyer la liste des fichiers du projet
+    ipcMain.on('request-project-files', () => {
+      console.log('📋 Envoi de la liste des fichiers au renderer...');
+      
+      const filesList = [];
+      this.projectFiles.forEach((fileInfo, fileName) => {
+        filesList.push({
+          name: fileName,
+          fullPath: fileInfo.fullPath,
+          size: fileInfo.size,
+          modified: fileInfo.modified,
+          status: fileInfo.status || 'ready'
+        });
+      });
+      
+      this.sendToRenderer('project-files-list', {
+        files: filesList,
+        projectPath: this.projectPath,
+        totalFiles: filesList.length
+      });
     });
 
     // 🚀 DÉMARRER SESSION LIVE CODING
