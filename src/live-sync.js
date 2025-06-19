@@ -1,9 +1,11 @@
 // Système de synchronisation live coding avec Operational Transformation
 const EventEmitter = require('events');
+const WebSocket = require('ws');
 
 class LiveSyncEngine extends EventEmitter {
-  constructor() {
+  constructor(configManager) {
     super();
+    this.configManager = configManager;
     this.documents = new Map(); // fileName -> DocumentState
     this.clients = new Map(); // clientId -> ClientState
     this.operationQueue = [];
@@ -19,6 +21,21 @@ class LiveSyncEngine extends EventEmitter {
     // Optimisation : batch les opérations toutes les 16ms (60fps)
     this.batchTimer = null;
     this.pendingOperations = [];
+    
+    // Historique des opérations pour les métriques
+    this.operationHistory = [];
+    this.metricsInterval = null;
+    
+    // Métriques de performance
+    this.metrics = {
+      operationsPerSecond: 0,
+      averageLatency: 0,
+      activeConnections: 0,
+      totalOperations: 0
+    };
+    
+    // Démarrer les métriques
+    this.startMetricsCollection();
   }
 
   // Initialiser un document pour le live coding
@@ -591,6 +608,116 @@ class LiveSyncEngine extends EventEmitter {
     
     const errors = this.operationHistory.filter(op => op.error).length;
     return (errors / this.operationHistory.length) * 100;
+  }
+
+  // Démarrer le serveur live coding
+  startLiveCodingServer() {
+    const config = this.configManager.getConfig();
+    const serverConfig = config.server;
+    
+    // Vérifier si le serveur doit être démarré
+    if (!serverConfig.enabled || !serverConfig.autoStart) {
+      console.log('🔒 Serveur live coding désactivé (mode local uniquement)');
+      return;
+    }
+
+    // Déterminer l'host selon le mode
+    let host = 'localhost'; // Par défaut local
+    
+    if (config.networkMode === 'network') {
+      host = '0.0.0.0'; // Écoute sur toutes les interfaces
+      console.log('🌐 Mode réseau activé - Ports requis dans le firewall');
+    } else if (config.networkMode === 'auto') {
+      // Auto-détection basée sur la présence d'autres machines
+      host = this.shouldEnableNetworkMode() ? '0.0.0.0' : 'localhost';
+    } else {
+      console.log('🔒 Mode local uniquement - Aucun port à ouvrir');
+    }
+
+    this.server = new WebSocket.Server({ 
+      port: serverConfig.port, 
+      host: host,
+      perMessageDeflate: false 
+    });
+
+    console.log(`🚀 Serveur live coding sur ${host}:${serverConfig.port}`);
+    
+    if (host === '0.0.0.0') {
+      const networkInterfaces = require('os').networkInterfaces();
+      Object.keys(networkInterfaces).forEach(interfaceName => {
+        networkInterfaces[interfaceName].forEach(iface => {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            console.log(`🌐 Accessible depuis: ${iface.address}:${serverConfig.port}`);
+          }
+        });
+      });
+    } else {
+      console.log(`🏠 Accessible uniquement en local: localhost:${serverConfig.port}`);
+    }
+  }
+
+  // Arrêter le serveur
+  stopServer() {
+    if (this.server) {
+      console.log('🛑 Arrêt du serveur live coding...');
+      this.server.close();
+      this.server = null;
+      
+      // Fermer toutes les connexions clients
+      this.clients.forEach((client, id) => {
+        if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+          client.ws.close();
+        }
+      });
+      this.clients.clear();
+      
+      console.log('✅ Serveur arrêté');
+    }
+  }
+
+  // Déterminer si le mode réseau doit être activé automatiquement
+  shouldEnableNetworkMode() {
+    // Logique simple : si plus de 0 clients connectés récemment
+    return this.metrics.activeConnections > 0;
+  }
+
+  // Démarrer la collecte de métriques
+  startMetricsCollection() {
+    // Collecter les métriques toutes les secondes
+    this.metricsInterval = setInterval(() => {
+      this.updateMetrics();
+    }, 1000);
+    
+    console.log('📊 Collecte de métriques démarrée');
+  }
+
+  // Mettre à jour les métriques
+  updateMetrics() {
+    // Calculer les opérations par seconde
+    const now = Date.now();
+    const recentOps = this.operationHistory.filter(op => now - op.timestamp < 1000);
+    this.metrics.operationsPerSecond = recentOps.length;
+    
+    // Calculer la latence moyenne
+    if (recentOps.length > 0) {
+      const totalLatency = recentOps.reduce((sum, op) => sum + (op.latency || 0), 0);
+      this.metrics.averageLatency = totalLatency / recentOps.length;
+    }
+    
+    // Compter les connexions actives
+    this.metrics.activeConnections = this.clients.size;
+    
+    // Total des opérations
+    this.metrics.totalOperations = this.operationHistory.length;
+  }
+
+  // Arrêter la collecte de métriques
+  stopMetricsCollection() {
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+      this.metricsInterval = null;
+      console.log('📊 Collecte de métriques arrêtée');
+    }
   }
 }
 

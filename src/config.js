@@ -7,8 +7,15 @@ class ConfigManager {
   constructor() {
     this.configPath = path.join(os.homedir(), '.syncteam', 'config.json');
     this.defaultConfig = {
+      // Mode de fonctionnement
+      networkMode: 'local', // 'local' | 'network' | 'auto'
+      
+      // Serveur live coding
       server: {
+        enabled: true,
         port: 8080,
+        host: 'localhost', // 'localhost' pour local seulement, '0.0.0.0' pour réseau
+        autoStart: true,
         maxClients: 10,
         heartbeatInterval: 30000,
         sessionTimeout: 86400000 // 24h
@@ -175,6 +182,78 @@ class ConfigManager {
       console.error('Erreur import config:', error);
       return false;
     }
+  }
+
+  // Obtenir toute la configuration
+  getConfig() {
+    return { ...this.config };
+  }
+
+  // Mettre à jour la configuration
+  async updateConfig(updates) {
+    try {
+      // Fusionner les mises à jour
+      this.config = this.mergeConfig(this.config, updates);
+      
+      // Sauvegarder
+      const saved = this.save();
+      
+      if (saved) {
+        console.log('✅ Configuration mise à jour:', updates);
+        return { success: true };
+      } else {
+        throw new Error('Erreur sauvegarde');
+      }
+    } catch (error) {
+      console.error('❌ Erreur mise à jour config:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Configuration par défaut
+  getDefaultConfig() {
+    return {
+      // Mode de fonctionnement
+      networkMode: 'local', // 'local' | 'network' | 'auto'
+      
+      // Serveur live coding
+      server: {
+        enabled: true,
+        port: 8080,
+        host: 'localhost', // 'localhost' pour local seulement, '0.0.0.0' pour réseau
+        autoStart: true
+      },
+      files: {
+        maxDepth: 10,
+        debounceTime: 300,
+        maxFileSize: 10 * 1024 * 1024, // 10MB
+        watcherEnabled: true,
+        ignorePatterns: [
+          'node_modules/**',
+          '.git/**',
+          '*.log',
+          '*.tmp',
+          'dist/**',
+          'build/**'
+        ]
+      },
+      ui: {
+        theme: 'dark',
+        language: 'fr',
+        notifications: true,
+        autoUpdate: true
+      },
+      security: {
+        requirePassword: false,
+        allowedIPs: [], // Vide = toutes les IPs
+        maxFailedAttempts: 3
+      },
+      performance: {
+        compressionEnabled: true,
+        deltaSync: true,
+        statsEnabled: true
+      }
+    };
   }
 }
 

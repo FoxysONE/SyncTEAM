@@ -365,11 +365,17 @@ function showWelcomeScreen() {
 }
 
 function showDashboard() {
-    document.getElementById('welcomeScreen').style.display = 'none';
-    document.getElementById('dashboard').style.display = 'block';
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const dashboard = document.getElementById('dashboard');
     
-    // Mettre à jour la liste des fichiers avec les vrais fichiers
+    if (welcomeScreen) welcomeScreen.style.display = 'none';
+    if (dashboard) dashboard.style.display = 'block';
+    
+    // Mettre à jour la liste des fichiers
     updateFileList();
+    
+    // Ajouter le bouton de mode réseau
+    addNetworkModeButton();
 }
 
 // Actions utilisateur
@@ -642,22 +648,27 @@ function updateActivityDisplay() {
     activityLogEl.innerHTML = activityHtml;
 }
 
-function showNotification(message, type = 'info') {
+// Afficher une notification
+function showNotification(message, type = 'success') {
+    // Supprimer les notifications existantes
+    const existingNotifications = document.querySelectorAll('.mode-notification');
+    existingNotifications.forEach(notif => notif.remove());
+    
+    // Créer la nouvelle notification
     const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
+    notification.className = `mode-notification ${type}`;
     notification.textContent = message;
     
+    // Ajouter au DOM
     document.body.appendChild(notification);
     
-    // Supprimer après 4 secondes
+    // Supprimer automatiquement après 3 secondes
     setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 300);
-    }, 4000);
+        if (notification.parentNode) {
+            notification.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => notification.remove(), 300);
+        }
+    }, 3000);
 }
 
 // Gestion des raccourcis clavier
@@ -851,6 +862,75 @@ function requestProjectFiles() {
     
     // Demander au processus principal la liste des fichiers
     ipcRenderer.send('request-project-files');
+}
+
+// Ajouter le bouton de mode réseau
+function addNetworkModeButton() {
+    // Vérifier si le bouton existe déjà
+    if (document.querySelector('.network-mode-btn')) return;
+    
+    // Trouver la section Actions
+    const actionsContainer = document.querySelector('.actions');
+    if (!actionsContainer) {
+        console.warn('❌ Container .actions non trouvé pour le bouton réseau');
+        return;
+    }
+    
+    // Créer le bouton
+    const networkModeBtn = document.createElement('button');
+    networkModeBtn.innerHTML = '🔒 Mode Local';
+    networkModeBtn.className = 'network-mode-btn local-active';
+    networkModeBtn.title = 'Cliquez pour basculer entre mode local et réseau';
+    networkModeBtn.onclick = () => toggleNetworkMode();
+    
+    // Ajouter le bouton en première position
+    actionsContainer.insertBefore(networkModeBtn, actionsContainer.firstChild);
+    
+    console.log('✅ Bouton mode réseau ajouté');
+    
+    // Mettre à jour l'état du bouton
+    updateNetworkModeButton();
+}
+
+// Basculer le mode réseau
+async function toggleNetworkMode() {
+    try {
+        console.log('🔄 Basculement du mode réseau...');
+        const result = await ipcRenderer.invoke('toggle-network-mode');
+        
+        if (result.success) {
+            updateNetworkModeButton();
+            showNotification(result.message);
+            console.log(`✅ Mode changé vers: ${result.mode}`);
+        } else {
+            showNotification(`❌ Erreur: ${result.error}`);
+        }
+    } catch (error) {
+        console.error('❌ Erreur basculement mode:', error);
+        showNotification('❌ Erreur lors du basculement de mode');
+    }
+}
+
+// Mettre à jour le bouton de mode réseau
+async function updateNetworkModeButton() {
+    try {
+        const config = await ipcRenderer.invoke('get-config');
+        const btn = document.querySelector('.network-mode-btn');
+        
+        if (!btn) return;
+        
+        if (config.networkMode === 'network') {
+            btn.innerHTML = '🌐 Mode Réseau';
+            btn.className = 'network-mode-btn network-active';
+            btn.title = 'Mode réseau actif - Port 8080 ouvert. Cliquez pour passer en mode local.';
+        } else {
+            btn.innerHTML = '🔒 Mode Local';
+            btn.className = 'network-mode-btn local-active';
+            btn.title = 'Mode local actif - Aucun port requis. Cliquez pour passer en mode réseau.';
+        }
+    } catch (error) {
+        console.error('❌ Erreur mise à jour bouton:', error);
+    }
 }
 
 console.log('🎯 CodeSync renderer initialisé - Prêt pour la synchronisation!'); 

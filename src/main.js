@@ -28,12 +28,12 @@ class CodeSyncApp {
     this.watchers = [];
     
     // 🔥 MODULES LIVE CODING
-    this.liveSyncEngine = new LiveSyncEngine();
+    this.configManager = new ConfigManager();
+    this.liveSyncEngine = new LiveSyncEngine(this.configManager);
     this.conflictResolver = new ConflictResolver();
     this.aiAssistant = new AICodeAssistant();
     this.auth = new AuthManager();
     this.stats = new StatsManager();
-    this.config = new ConfigManager();
     this.backup = null; // Initialisé quand un projet est sélectionné
     
     // Connexion WebSocket optimisée
@@ -160,7 +160,7 @@ class CodeSyncApp {
       this.mainWindow.show();
       
       // Envoyer la configuration initiale
-      this.sendToRenderer('config_loaded', this.config.export());
+      this.sendToRenderer('config_loaded', this.configManager.export());
       this.sendToRenderer('client_info', {
         clientId: this.clientId,
         userName: this.userName,
@@ -249,8 +249,8 @@ class CodeSyncApp {
         const updateChecker = new GitHubUpdateChecker();
         const result = await updateChecker.downloadUpdate();
         
-        return {
-          success: true,
+        return { 
+          success: true, 
           message: 'Téléchargement terminé'
         };
       } catch (error) {
@@ -342,7 +342,7 @@ class CodeSyncApp {
           success: true, 
           sessionId: this.sessionId,
           password: this.sessionPassword,
-          port: this.config.get('server.port'),
+          port: this.configManager.get('server.port'),
           message: `Session live démarrée - ID: ${this.sessionId}` 
         };
         
@@ -451,7 +451,7 @@ class CodeSyncApp {
     ipcMain.handle('update-config', async (event, configUpdate) => {
       try {
         for (const [key, value] of Object.entries(configUpdate)) {
-          this.config.set(key, value);
+          this.configManager.set(key, value);
         }
         
         // Appliquer les changements de configuration
@@ -489,35 +489,90 @@ class CodeSyncApp {
       };
     });
 
+    // Handler pour basculer le mode réseau
+    ipcMain.handle('toggle-network-mode', async () => {
+      try {
+                 const currentConfig = this.configManager.getConfig();
+         const newMode = currentConfig.networkMode === 'local' ? 'network' : 'local';
+         
+         // Mettre à jour la configuration
+         await this.configManager.updateConfig({ networkMode: newMode });
+        
+        // Redémarrer le serveur live coding avec le nouveau mode
+        if (this.liveSyncEngine) {
+          this.liveSyncEngine.stopServer();
+          this.liveSyncEngine.startLiveCodingServer();
+        }
+        
+        console.log(`🔄 Mode changé vers: ${newMode}`);
+        
+        return {
+          success: true,
+          mode: newMode,
+          message: newMode === 'network' 
+            ? 'Mode réseau activé - Port 8080 requis'
+            : 'Mode local activé - Aucun port requis'
+        };
+        
+      } catch (error) {
+        console.error('❌ Erreur basculement mode:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    });
+
+    // Handler pour obtenir la configuration
+         ipcMain.handle('get-config', async () => {
+       try {
+         return this.configManager.getConfig();
+       } catch (error) {
+         console.error('❌ Erreur récupération config:', error);
+         return {};
+       }
+     });
+
+    // Handler pour déconnexion
+    ipcMain.handle('disconnect', async () => {
+      try {
+        await this.disconnect();
+        return { success: true, message: 'Déconnexion réussie' };
+      } catch (error) {
+        console.error('❌ Erreur déconnexion:', error);
+        return { success: false, error: error.message };
+      }
+    });
+
     // Handlers de mise à jour...
     this.setupUpdateHandlers();
   }
 
   // 🚀 SERVEUR OPTIMISÉ POUR LIVE CODING
   async startOptimizedServer() {
-    const port = this.config.get('server.port');
-    const maxClients = this.config.get('server.maxClients');
+    const port = this.configManager.get('server.port');
+    const maxClients = this.configManager.get('server.maxClients');
     
     this.syncServer = new WebSocket.Server({ 
       port: port,
       maxPayload: 10 * 1024 * 1024 // 10MB max
-    });
-    
-    this.syncServer.on('connection', (ws) => {
+      });
+
+      this.syncServer.on('connection', (ws) => {
       console.log('🔗 Nouvelle connexion live coding');
       this.stats.recordConnection();
-      
-      ws.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
+
+        ws.on('message', (data) => {
+          try {
+            const message = JSON.parse(data.toString());
           this.handleLiveMessage(ws, message);
-        } catch (error) {
+          } catch (error) {
           console.error('Erreur message live:', error);
           this.stats.recordError();
-        }
-      });
-      
-      ws.on('close', () => {
+          }
+        });
+
+        ws.on('close', () => {
         this.handleClientDisconnect(ws);
       });
       
@@ -532,7 +587,7 @@ class CodeSyncApp {
 
   // 🔗 CONNEXION À SESSION LIVE
   async connectToLiveSession(hostIP, sessionId, password) {
-    const wsUrl = `ws://${hostIP}:${this.config.get('server.port')}`;
+    const wsUrl = `ws://${hostIP}:${this.configManager.get('server.port')}`;
     
     this.wsOptimized = new OptimizedWebSocket({
       heartbeatInterval: 15000, // Plus fréquent pour le live coding
@@ -671,7 +726,7 @@ class CodeSyncApp {
           analysis: analysis
         });
         
-      } catch (error) {
+        } catch (error) {
         console.error(`Erreur analyse IA ${fileName}:`, error);
       }
     });
@@ -692,7 +747,7 @@ class CodeSyncApp {
     this.projectFiles.clear();
     console.log(`🔍 Scan du projet: ${this.projectPath}`);
     
-    const maxDepth = this.config.get('files.maxDepth');
+    const maxDepth = this.configManager.get('files.maxDepth');
     const scanDir = (dirPath, relativePath = '', depth = 0) => {
       if (depth > maxDepth) {
         console.warn(`⚠️ Profondeur maximale atteinte: ${dirPath}`);
@@ -735,7 +790,7 @@ class CodeSyncApp {
   }
 
   shouldIgnoreFile(fileName) {
-    const ignorePatterns = this.config.get('files.ignorePatterns');
+    const ignorePatterns = this.configManager.get('files.ignorePatterns');
     
     return ignorePatterns.some(pattern => {
       if (pattern.includes('*')) {
@@ -905,7 +960,7 @@ class CodeSyncApp {
           modified: fileInfo.modified,
           size: fileInfo.size
         };
-      } catch (error) {
+    } catch (error) {
         console.error(`Erreur lecture fichier ${fileName}:`, error);
       }
     });
@@ -920,10 +975,10 @@ class CodeSyncApp {
   applyConfigChanges(configUpdate) {
     try {
       Object.keys(configUpdate).forEach(key => {
-        this.config.set(key, configUpdate[key]);
+        this.configManager.set(key, configUpdate[key]);
       });
       
-      this.config.save();
+      this.configManager.save();
       console.log('⚙️ Configuration mise à jour');
       
     } catch (error) {
