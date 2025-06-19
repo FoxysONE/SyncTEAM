@@ -1,9 +1,9 @@
 {
   "name": "SyncTEAM",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Live Coding Collaboration Platform",
   "repository": "https://github.com/FoxysONE/SyncTEAM.git",
-  "lastUpdate": "2025-06-19T19:00:00.000Z",
+  "lastUpdate": "2025-06-19T20:05:00.000Z",
   "features": [
     "Live coding synchronization (60fps)",
     "Shared cursors with colors",
@@ -13,6 +13,15 @@
     "GitHub auto-updates"
   ],
   "changelog": {
+    "2.1.0": {
+      "date": "2025-06-19",
+      "changes": [
+        "🔄 GitHub auto-update system fully working",
+        "📡 Real-time commit detection",
+        "🚀 One-click update installation",
+        "💾 Automatic backup before updates"
+      ]
+    },
     "2.0.0": {
       "date": "2025-06-19",
       "changes": [
