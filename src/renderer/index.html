@@ -139,11 +139,11 @@
     <!-- Connect Modal -->
     <div class="modal" id="connectModal" style="display: none;" onclick="hideConnect()">
         <div class="modal-content" onclick="event.stopPropagation()">
-            <h3>🔗 Se Connecter à une Session</h3>
+            <h3>🔗 Se Connecter à un Hôte</h3>
             <form onsubmit="connectToHost(event)">
                 <div class="form-group">
-                    <label for="sessionId">ID de Session:</label>
-                    <input type="text" id="sessionId" placeholder="Entrez l'ID de session partagé" required>
+                    <label for="hostIp">IP de l'hôte:</label>
+                    <input type="text" id="hostIp" placeholder="192.168.1.100 ou localhost" value="localhost" required>
                 </div>
                 <div class="form-actions">
                     <button type="button" onclick="hideConnect()">Annuler</button>

@@ -14,8 +14,9 @@ class CodeSyncApp {
     this.isHost = false;
     this.isConnected = false;
     this.watchers = [];
-    // SERVEUR DE RELAIS TEMPORAIRE POUR TESTS
-    this.relayServer = 'wss://echo.websocket.org'; // Serveur de test public
+    // MODE LOCAL DIRECT - PAS DE SERVEUR EXTERNE REQUIS
+    this.useLocalMode = true; // Nouvelle option
+    this.serverPort = 8080;
     this.sessionId = null;
     this.projectFiles = new Map();
     this.watcherEnabled = true;
@@ -93,8 +94,9 @@ class CodeSyncApp {
         
         return { 
           success: true, 
+          port: this.serverPort,
           sessionId: this.sessionId,
-          message: `Session créée: ${this.sessionId}` 
+          message: `Serveur démarré sur le port ${this.serverPort}` 
         };
       } catch (error) {
         console.error('Erreur démarrage serveur:', error);
@@ -105,14 +107,14 @@ class CodeSyncApp {
     // Se connecter à un hôte
     ipcMain.handle('connect-to-host', async (event, hostInfo) => {
       try {
-        const { sessionId } = hostInfo;
-        await this.connectToSession(sessionId);
+        const { ip } = hostInfo;
+        await this.connectToSession(ip);
         this.isConnected = true;
         
         // Demander la synchronisation initiale
         this.requestInitialSync();
         
-        return { success: true, message: `Connecté à la session ${sessionId}` };
+        return { success: true, message: `Connecté à ${ip}:${this.serverPort}` };
       } catch (error) {
         console.error('Erreur connexion:', error);
         return { success: false, error: error.message };
@@ -293,60 +295,57 @@ class CodeSyncApp {
 
   async startServer() {
     return new Promise((resolve, reject) => {
-      this.syncClient = new WebSocket(this.relayServer);
+      // MODE LOCAL DIRECT - Créer un vrai serveur WebSocket
+      this.syncServer = new WebSocket.Server({ port: this.serverPort });
       
-      this.syncClient.on('open', () => {
-        console.log('🖥️ Connexion au serveur de relais établie');
-        
-        // Créer une room
-        this.syncClient.send(JSON.stringify({
-          type: 'create_room',
-          sessionId: this.sessionId
-        }));
-        
+      this.syncServer.on('listening', () => {
+        console.log(`🖥️ Serveur local démarré sur le port ${this.serverPort}`);
         this.startHeartbeat();
+        resolve();
       });
 
-      this.syncClient.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          this.handleRelayMessage(message);
-        } catch (error) {
-          console.error('Erreur traitement message relais:', error);
-        }
-      });
+      this.syncServer.on('connection', (ws) => {
+        console.log('👤 Nouveau client connecté');
+        
+        ws.send(JSON.stringify({
+          type: 'session_info',
+          sessionId: this.sessionId,
+          message: 'Connexion établie'
+        }));
 
-      this.syncClient.on('close', () => {
-        console.log('🔌 Connexion au relais fermée');
-        this.isConnected = false;
+        ws.on('message', (data) => {
+          try {
+            const message = JSON.parse(data.toString());
+            this.handleServerMessage(ws, message);
+          } catch (error) {
+            console.error('Erreur traitement message serveur:', error);
+          }
+        });
+
+        ws.on('close', () => {
+          console.log('👋 Client déconnecté');
+          this.updateUI();
+        });
+
         this.updateUI();
       });
 
-      this.syncClient.on('error', (error) => {
-        console.error('Erreur connexion relais:', error);
+      this.syncServer.on('error', (error) => {
+        console.error('Erreur serveur local:', error);
         reject(error);
       });
-      
-      // Résoudre après connexion
-      this.syncClient.on('open', resolve);
     });
   }
 
-  async connectToSession(sessionId) {
+  async connectToSession(hostIP) {
     return new Promise((resolve, reject) => {
-      console.log(`🔗 Connexion à la session ${sessionId}...`);
+      console.log(`🔗 Connexion à ${hostIP}:${this.serverPort}...`);
       
-      this.syncClient = new WebSocket(this.relayServer);
+      const wsUrl = `ws://${hostIP}:${this.serverPort}`;
+      this.syncClient = new WebSocket(wsUrl);
       
       this.syncClient.on('open', () => {
-        console.log('✅ Connecté au serveur de relais');
-        
-        // Rejoindre la room
-        this.syncClient.send(JSON.stringify({
-          type: 'join_room',
-          sessionId: sessionId
-        }));
-        
+        console.log('✅ Connecté au serveur');
         this.isConnected = true;
         this.startHeartbeat();
         resolve();
@@ -355,7 +354,7 @@ class CodeSyncApp {
       this.syncClient.on('message', (data) => {
         try {
           const message = JSON.parse(data.toString());
-          this.handleRelayMessage(message);
+          this.handleClientMessage(message);
         } catch (error) {
           console.error('Erreur traitement message client:', error);
         }
@@ -435,14 +434,48 @@ class CodeSyncApp {
 
 
 
-  sendProjectFiles() {
+  handleServerMessage(ws, message) {
+    switch (message.type) {
+      case 'request_initial_sync':
+        this.sendProjectFiles(ws);
+        break;
+      case 'file_change':
+        console.log(`📥 Changement reçu: ${message.action} - ${message.filePath}`);
+        this.applyFileChange(message);
+        this.broadcastToOthers(ws, message);
+        break;
+      case 'ping':
+        ws.send(JSON.stringify({ type: 'pong' }));
+        break;
+    }
+  }
+
+  handleClientMessage(message) {
+    switch (message.type) {
+      case 'session_info':
+        this.sessionId = message.sessionId;
+        console.log(`📋 Session reçue: ${this.sessionId}`);
+        break;
+      case 'initial_sync':
+        this.applyInitialSync(message);
+        break;
+      case 'file_change':
+        console.log(`📥 Changement reçu du serveur: ${message.action} - ${message.filePath}`);
+        this.applyFileChange(message);
+        break;
+      case 'pong':
+        break;
+    }
+  }
+
+  sendProjectFiles(ws) {
     if (!this.projectPath || this.projectFiles.size === 0) {
-      this.sendRelayData({
+      ws.send(JSON.stringify({
         type: 'initial_sync',
         files: {},
         projectName: path.basename(this.projectPath || 'empty-project'),
         sessionId: this.sessionId
-      });
+      }));
       return;
     }
 
@@ -469,8 +502,8 @@ class CodeSyncApp {
       totalFiles: Object.keys(files).length
     };
 
-    console.log(`📤 Envoi de ${Object.keys(files).length} fichiers via relais`);
-    this.sendRelayData(syncData);
+    console.log(`📤 Envoi de ${Object.keys(files).length} fichiers au client`);
+    ws.send(JSON.stringify(syncData));
   }
   
   sendRelayData(data) {
@@ -594,9 +627,11 @@ class CodeSyncApp {
   }
 
   requestInitialSync() {
-    this.sendRelayData({
-      type: 'request_initial_sync'
-    });
+    if (this.syncClient && this.syncClient.readyState === WebSocket.OPEN) {
+      this.syncClient.send(JSON.stringify({
+        type: 'request_initial_sync'
+      }));
+    }
   }
 
   setupFileWatcher() {

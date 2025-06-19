@@ -187,7 +187,7 @@ function updateConnectionInfo() {
     if (appState.isHost) {
         connectionInfoEl.innerHTML = '<strong>🖥️ Mode Serveur</strong>';
         clientsInfoEl.textContent = `${appState.connectedClients} clients connectés`;
-        serverInfoEl.textContent = `Session: ${appState.sessionId || 'N/A'} | Vous êtes l\'hôte`;
+        serverInfoEl.textContent = `Port: 8080 | Vous êtes l\'hôte`;
     } else if (appState.isConnected) {
         connectionInfoEl.innerHTML = '<strong>🔗 Mode Client</strong>';
         clientsInfoEl.textContent = 'Connecté au serveur';
@@ -378,20 +378,20 @@ function hideConnect() {
 async function connectToHost(event) {
     event.preventDefault();
     
-    const sessionId = document.getElementById('sessionId').value.trim();
+    const ip = document.getElementById('hostIp').value.trim();
     
-    if (!sessionId) {
-        showNotification('⚠️ Veuillez entrer un ID de session', 'warning');
+    if (!ip) {
+        showNotification('⚠️ Veuillez entrer une adresse IP', 'warning');
         return;
     }
 
     try {
-        addActivity(`🔗 Connexion à la session ${sessionId}...`, 'info');
-        const result = await ipcRenderer.invoke('connect-to-host', { sessionId });
+        addActivity(`🔗 Connexion à ${ip}:8080...`, 'info');
+        const result = await ipcRenderer.invoke('connect-to-host', { ip });
         
         if (result.success) {
-            showNotification(`✅ Connecté à la session ${sessionId}`, 'success');
-            addActivity(`🔗 Connecté à la session ${sessionId}`, 'success');
+            showNotification(`✅ Connecté à ${ip}:8080`, 'success');
+            addActivity(`🔗 Connecté à ${ip}:8080`, 'success');
             hideConnect();
             
             // Le client va recevoir les fichiers automatiquement
